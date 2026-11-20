@@ -77,6 +77,18 @@ public static class AgentEndpoints
         await db.SaveChangesAsync();
         await audit.LogAsync("device.enroll", $"{device.Hostname} ({device.Id})", $"token={token.Name}");
 
+        // A fresh install must never execute commands queued for the previous installation - above all a pending
+        // remote "uninstall", which would otherwise remove the newly installed agent on its first heartbeat.
+        if (!isNew)
+        {
+            var now = DateTime.UtcNow;
+            var cancelled = await db.Commands.Where(c => c.DeviceId == device.Id && (c.Status == "pending" || c.Status == "sent"))
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, "cancelled").SetProperty(c => c.CompletedAt, now)
+                    .SetProperty(c => c.Result, "Cancelled: the agent was reinstalled before this command was delivered"));
+            if (cancelled > 0)
+                await audit.LogAsync("device.commandsCancelled", $"{device.Hostname} ({device.Id})", $"{cancelled} pending command(s) cancelled on re-enrollment");
+        }
+
         return Results.Ok(new EnrollResponse(device.Id, keys.DeviceSecret(device.Id), cert.Pem, keys.CaCertPem,
             keys.EncryptionPublicPem, keys.SigningPublicPem, device.Status.ToString().ToLowerInvariant()));
     }

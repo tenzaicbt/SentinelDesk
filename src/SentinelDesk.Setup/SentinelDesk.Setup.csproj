@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tiny .NET Framework 4.8 wrapper (built into every Windows 10/11), so the setup file is ~ the size of the agent package. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SentinelDesk-Setup</AssemblyName>
+    <RootNamespace>SentinelDesk.Setup</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>setup.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>SentinelDesk Agent Setup</Product>
+    <Company>SentinelDesk</Company>
+    <!-- path to the agent bundle zip, passed by build.ps1 -->
+    <AgentZip Condition="'$(AgentZip)' == ''"></AgentZip>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgentZip)' != ''">
+    <EmbeddedResource Include="$(AgentZip)" LogicalName="agent.zip" />
+  </ItemGroup>
+</Project>

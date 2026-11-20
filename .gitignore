@@ -1,0 +1,26 @@
+bin/
+obj/
+# build output - release binaries are published as GitHub Release assets, not committed
+publish/
+node_modules/
+*.user
+.vs/
+.vscode/*
+!.vscode/extensions.json
+
+# build output of the web console (served by the server)
+src/SentinelDesk.Server/wwwroot/
+
+# runtime data: SQLite DB and server key material — never commit
+data/
+**/data/keys/
+*.db
+*.db-shm
+*.db-wal
+
+# local dev runtime (dev.ps1)
+.run/
+
+# local notes / secrets
+.env
+*.env

@@ -1,0 +1,12 @@
+<Project>
+  <!-- Shared assembly metadata for every SentinelDesk project (shown in each .exe's Properties > Details). -->
+  <PropertyGroup>
+    <Authors>Yohan Koshala</Authors>
+    <Company>Yohan Koshala (LordeFX)</Company>
+    <Copyright>© 2026 Yohan Koshala. All rights reserved. www.lordefx.com</Copyright>
+    <PackageProjectUrl>https://www.lordefx.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/tenzaicbt</RepositoryUrl>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+</Project>

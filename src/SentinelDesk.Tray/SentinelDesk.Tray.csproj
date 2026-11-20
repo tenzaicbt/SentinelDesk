@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SentinelDesk.Shared\SentinelDesk.Shared.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SentinelDesk.Tray</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>SentinelDesk Tray</Product>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\..\assets\SentinelDesk.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\SentinelDesk.ico" LogicalName="SentinelDesk.ico" />
+  </ItemGroup>
+
+</Project>

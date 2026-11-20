@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "SentinelDesk.Agent": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "SENTINELDESK_SERVER": "https://localhost:5443",
+        "SENTINELDESK_TOKEN": "SD-DEV-LOCAL-ENROLL"
+      }
+    }
+  }
+}

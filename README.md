@@ -1,4 +1,4 @@
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="doc/logo/SentinelDesk-logo-dark.png"><img src="doc/logo/SentinelDesk-logo-dark.png" alt="SentinelDesk — Endpoint Metrics" width="460"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="doc/logo/SentinelDesk-logo-dark.png"><img src="doc/logo/SentinelDesk-logo.png" alt="SentinelDesk — Endpoint Metrics" width="460"></picture></p>
 
 # SentinelDesk — Endpoint Monitoring & Management
 

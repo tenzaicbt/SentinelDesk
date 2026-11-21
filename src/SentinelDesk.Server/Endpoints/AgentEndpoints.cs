@@ -52,6 +52,7 @@ public static class AgentEndpoints
         device.OsBuild = req.OsBuild;
         device.AgentVersion = req.AgentVersion;
         device.OrgUnitId ??= token.OrgUnitId;
+        device.EnrollmentTokenId = token.Id;
         device.LastIp = http.Connection.RemoteIpAddress?.ToString();
         if (isNew) device.Status = token.AutoApprove ? DeviceStatus.Active : DeviceStatus.Pending;
 

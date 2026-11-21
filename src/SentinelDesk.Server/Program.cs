@@ -147,7 +147,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
-    await Seeder.SeedAsync(db, app.Configuration, app.Logger);
+    await Seeder.SeedAsync(db, keys, app.Configuration, app.Logger);
 }
 
 app.UseForwardedHeaders();

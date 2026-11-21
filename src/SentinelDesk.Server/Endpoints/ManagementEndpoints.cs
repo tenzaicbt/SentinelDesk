@@ -237,26 +237,66 @@ public static class ManagementEndpoints
     {
         var g = app.MapGroup("/api/agents").RequireAuthorization("Super");
 
-        g.MapGet("/tokens", async (AppDb db) =>
+        g.MapGet("/tokens", async (AppDb db, PresenceStore presence) =>
         {
             var units = await db.OrgUnits.AsNoTracking().ToDictionaryAsync(o => o.Id, o => o.Name);
             var tokens = await db.EnrollmentTokens.AsNoTracking().OrderByDescending(t => t.CreatedAt).ToListAsync();
-            return Results.Ok(tokens.Select(t => new
+            var devices = await db.Devices.AsNoTracking().Where(d => d.EnrollmentTokenId != null && d.Status != DeviceStatus.Retired)
+                .Select(d => new { d.Id, Token = d.EnrollmentTokenId!.Value, d.Status }).ToListAsync();
+            var byToken = devices.GroupBy(d => d.Token).ToDictionary(g => g.Key, g => g.ToList());
+            return Results.Ok(tokens.Select(t =>
             {
-                t.Id, t.Name, t.Prefix, t.OrgUnitId, OrgUnit = t.OrgUnitId is { } u ? units.GetValueOrDefault(u) : null,
-                t.ExpiresAt, t.UsesLeft, t.UsedCount, t.AutoApprove, t.Revoked, t.CreatedAt, t.CreatedBy,
-                Active = !t.Revoked && t.ExpiresAt > DateTime.UtcNow && t.UsesLeft > 0
+                var ds = byToken.GetValueOrDefault(t.Id) ?? [];
+                return new
+                {
+                    t.Id, t.Name, t.Prefix, t.OrgUnitId, OrgUnit = t.OrgUnitId is { } u ? units.GetValueOrDefault(u) : null,
+                    t.ExpiresAt, t.UsesLeft, t.UsedCount, t.AutoApprove, t.Revoked, t.CreatedAt, t.CreatedBy,
+                    Active = !t.Revoked && t.ExpiresAt > DateTime.UtcNow && t.UsesLeft > 0,
+                    Revealable = t.TokenProtected != null,
+                    Devices = ds.Count,
+                    ActiveDevices = ds.Count(d => d.Status == DeviceStatus.Active),
+                    OnlineDevices = ds.Count(d => presence.IsOnline(d.Id)),
+                };
             }));
         });
 
-        g.MapPost("/tokens", async (TokenRequest r, AppDb db, AccessScope scope, AuditService audit) =>
+        // Reveal a stored token so it can be re-used for more PCs (audited; tokens from before encryption was added can't be revealed)
+        g.MapPost("/tokens/{id:guid}/reveal", async (Guid id, AppDb db, ServerKeys keys, AuditService audit) =>
+        {
+            var t = await db.EnrollmentTokens.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (t is null) return Results.NotFound();
+            if (t.TokenProtected is null) return Results.Problem("This token was created before tokens could be revealed - only its hash is stored. Create a new token instead.", statusCode: 409);
+            var raw = keys.UnprotectToken(t.TokenProtected);
+            if (raw is null) return Results.Problem("The stored token could not be decrypted (server keys changed). Create a new token instead.", statusCode: 409);
+            await audit.LogAsync("enrollToken.reveal", t.Name);
+            return Results.Ok(new { token = raw });
+        });
+
+        // Devices enrolled with this token (latest enrollment), with live status
+        g.MapGet("/tokens/{id:guid}/devices", async (Guid id, AppDb db, PresenceStore presence) =>
+        {
+            var units = await db.OrgUnits.AsNoTracking().ToDictionaryAsync(o => o.Id, o => o.Name);
+            var list = await db.Devices.AsNoTracking().Where(d => d.EnrollmentTokenId == id).OrderByDescending(d => d.EnrolledAt).ToListAsync();
+            return Results.Ok(list.Select(d =>
+            {
+                var p = presence.Get(d.Id);
+                return new
+                {
+                    d.Id, d.Hostname, Status = d.Status.ToString().ToLowerInvariant(), Online = presence.IsOnline(d.Id),
+                    LastSeen = p?.LastSeen ?? d.LastSeenAt, User = p?.User ?? d.LoggedInUser, d.AgentVersion, d.EnrolledAt,
+                    OrgUnit = d.OrgUnitId is { } u ? units.GetValueOrDefault(u) : null, d.Os,
+                };
+            }));
+        });
+
+        g.MapPost("/tokens", async (TokenRequest r, AppDb db, ServerKeys keys, AccessScope scope, AuditService audit) =>
         {
             var raw = "SD-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
             var t = new EnrollmentToken
             {
                 Name = r.Name, OrgUnitId = r.OrgUnitId, ExpiresAt = DateTime.UtcNow.AddDays(Math.Clamp(r.Days, 1, 365)),
                 UsesLeft = Math.Clamp(r.Uses, 1, 100_000), AutoApprove = r.AutoApprove, TokenHash = AgentEndpoints.HashToken(raw),
-                Prefix = raw[..9], CreatedBy = scope.Username
+                TokenProtected = keys.ProtectToken(raw), Prefix = raw[..9], CreatedBy = scope.Username
             };
             db.EnrollmentTokens.Add(t);
             await db.SaveChangesAsync();
@@ -345,7 +385,7 @@ public static class ManagementEndpoints
             return Results.Ok(new { available = fi is not null, sizeBytes = fi?.Length, builtAt = fi?.LastWriteTimeUtc, suggestions });
         });
 
-        g.MapPost("/installer", async (InstallerRequest r, AppDb db, IWebHostEnvironment env, IConfiguration config, AccessScope scope, AuditService audit) =>
+        g.MapPost("/installer", async (InstallerRequest r, AppDb db, ServerKeys keys, IWebHostEnvironment env, IConfiguration config, AccessScope scope, AuditService audit) =>
         {
             var path = FindInstaller(env, config);
             if (path is null) return Results.Problem("SentinelDesk-Setup.exe has not been built yet - run build.ps1 on the server", statusCode: 404);
@@ -360,7 +400,7 @@ public static class ManagementEndpoints
             {
                 Name = string.IsNullOrWhiteSpace(r.Name) ? $"Installer - {unit?.Name ?? "unassigned"} - {DateTime.UtcNow:yyyy-MM-dd}" : r.Name.Trim(),
                 OrgUnitId = unit?.Id, ExpiresAt = DateTime.UtcNow.AddDays(Math.Clamp(r.Days, 1, 365)), UsesLeft = Math.Clamp(r.Uses, 1, 100_000),
-                AutoApprove = r.AutoApprove, TokenHash = AgentEndpoints.HashToken(raw), Prefix = raw[..9], CreatedBy = scope.Username
+                AutoApprove = r.AutoApprove, TokenHash = AgentEndpoints.HashToken(raw), TokenProtected = keys.ProtectToken(raw), Prefix = raw[..9], CreatedBy = scope.Username
             };
             db.EnrollmentTokens.Add(token);
             await db.SaveChangesAsync();

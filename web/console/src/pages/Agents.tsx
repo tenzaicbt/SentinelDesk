@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Ban, Copy, Download, FlaskConical, KeyRound, PackagePlus, Rocket, ShieldCheck, Terminal, Trash2, Upload } from 'lucide-react'
+import { Ban, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, FlaskConical, KeyRound, Monitor, PackagePlus, Rocket, ShieldCheck, Terminal, Trash2, Upload } from 'lucide-react'
 import { api, ApiError, downloadPost } from '../lib/api'
 import { ago, bytes, dateTime } from '../lib/format'
-import { Badge, Button, Callout, Card, Empty, Field, Input, Kv, Modal, PageHeader, Select, Skeleton, Switch, Table, Tabs } from '../components/ui'
+import { Badge, Button, Callout, Card, cx, Empty, Field, Input, Kv, Modal, OnlineDot, PageHeader, Select, Skeleton, Switch, Table, Tabs } from '../components/ui'
 import type { OrgUnit } from './Devices'
+import { confirmDialog } from '../components/dialog'
 
-interface Token { id: string; name: string; prefix: string; orgUnit?: string; expiresAt: string; usesLeft: number; usedCount: number; autoApprove: boolean; revoked: boolean; createdAt: string; createdBy?: string; active: boolean }
+interface Token { id: string; name: string; prefix: string; orgUnit?: string; expiresAt: string; usesLeft: number; usedCount: number; autoApprove: boolean; revoked: boolean; createdAt: string; createdBy?: string; active: boolean
+  revealable: boolean; devices: number; activeDevices: number; onlineDevices: number }
+interface TokenDevice { id: string; hostname: string; status: string; online: boolean; lastSeen?: string; user?: string; agentVersion: string; enrolledAt: string; orgUnit?: string; os: string }
 interface Release { id: string; version: string; fileName: string; sha256: string; sizeBytes: number; rolloutPercent: number; notes?: string; uploadedAt: string; uploadedBy?: string }
 interface ServerInfo { caThumbprint: string; caExpires: string; signingKeyFingerprint: string; encryptionKeyFingerprint: string; publicUrl?: string; requireMtls: boolean; demoMode: boolean }
 
@@ -42,6 +46,7 @@ function Enrollment() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name: '', orgUnitId: '', days: 30, uses: 500, autoApprove: true })
   const [created, setCreated] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const server = window.location.origin.replace(':5080', ':5443').replace(':5173', ':5443')
 
   const create = async () => {
@@ -74,7 +79,7 @@ function Enrollment() {
 
       {created && (
         <Callout tone="good">
-          <p className="font-medium">Token created — copy it now, it is shown only once.</p>
+          <p className="font-medium">Token created. You can copy it again any time from the token list below.</p>
           <div className="mt-2"><CopyBlock text={created} /></div>
         </Callout>
       )}
@@ -82,19 +87,38 @@ function Enrollment() {
       <Card pad={false} title="Enrollment tokens" actions={<Button variant="primary" size="sm" icon={<KeyRound className="size-3.5" />} onClick={() => setOpen(true)}>New token</Button>}>
         {!data ? <div className="p-4"><Skeleton className="h-40" /></div> : data.length === 0 ? <Empty icon={<KeyRound className="size-5" />} title="No tokens yet" /> : (
           <Table>
-            <thead><tr><th>Name</th><th>Token</th><th>Branch</th><th className="text-right">Used / left</th><th>Approval</th><th>Expires</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th className="w-6" /><th>Name</th><th>Token</th><th>Branch</th><th>Devices</th><th className="text-right">Used / left</th><th>Approval</th><th>Expires</th><th>Status</th><th /></tr></thead>
             <tbody>
               {data.map((t) => (
-                <tr key={t.id}>
-                  <td className="font-medium">{t.name}<div className="text-xs font-normal text-muted">by {t.createdBy} · {ago(t.createdAt)}</div></td>
-                  <td className="font-mono text-xs">{t.prefix}…</td>
-                  <td className="text-fg-2">{t.orgUnit ?? 'Unassigned'}</td>
-                  <td className="text-right tabular">{t.usedCount} / {t.usesLeft}</td>
-                  <td>{t.autoApprove ? <Badge>Automatic</Badge> : <Badge tone="warning">Manual</Badge>}</td>
-                  <td className="text-xs text-muted">{dateTime(t.expiresAt)}</td>
-                  <td>{t.active ? <Badge tone="good">Active</Badge> : <Badge>{t.revoked ? 'Revoked' : 'Expired'}</Badge>}</td>
-                  <td>{t.active && <Button size="sm" variant="ghost" icon={<Ban className="size-3.5" />} onClick={async () => { await api.post(`/api/agents/tokens/${t.id}/revoke`); qc.invalidateQueries({ queryKey: ['tokens'] }) }}>Revoke</Button>}</td>
-                </tr>
+                <Fragment key={t.id}>
+                  <tr className={cx(t.devices > 0 && 'cursor-pointer', expanded === t.id && 'bg-panel-2/50')}
+                    onClick={() => t.devices > 0 && setExpanded(expanded === t.id ? null : t.id)}>
+                    <td className="text-muted">{t.devices > 0 && (expanded === t.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />)}</td>
+                    <td className="font-medium">{t.name}<div className="text-xs font-normal text-muted">by {t.createdBy} · {ago(t.createdAt)}</div></td>
+                    <td onClick={(e) => e.stopPropagation()}><TokenValue t={t} /></td>
+                    <td className="text-fg-2">{t.orgUnit ?? 'Unassigned'}</td>
+                    <td>
+                      {t.devices === 0 ? <span className="text-xs text-muted">None</span> : (
+                        <span className="inline-flex items-center gap-2 text-xs">
+                          <span className="font-medium tabular text-fg">{t.devices}</span>
+                          <span className="inline-flex items-center gap-1 text-good-ink"><OnlineDot online={t.onlineDevices > 0} />{t.onlineDevices} online</span>
+                          {t.activeDevices < t.devices && <span className="text-muted">· {t.devices - t.activeDevices} not active</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-right tabular">{t.usedCount} / {t.usesLeft}</td>
+                    <td>{t.autoApprove ? <Badge>Automatic</Badge> : <Badge tone="warning">Manual</Badge>}</td>
+                    <td className="text-xs text-muted">{dateTime(t.expiresAt)}</td>
+                    <td>{t.active ? <Badge tone="good">Active</Badge> : <Badge>{t.revoked ? 'Revoked' : 'Expired'}</Badge>}</td>
+                    <td onClick={(e) => e.stopPropagation()}>{t.active && <Button size="sm" variant="ghost" icon={<Ban className="size-3.5" />} onClick={async () => {
+                      if (!(await confirmDialog({ title: `Revoke token "${t.name}"?`, message: 'No new devices can enroll with it. Devices already enrolled keep working.', confirmLabel: 'Revoke', tone: 'danger' }))) return
+                      await api.post(`/api/agents/tokens/${t.id}/revoke`); qc.invalidateQueries({ queryKey: ['tokens'] })
+                    }}>Revoke</Button>}</td>
+                  </tr>
+                  {expanded === t.id && (
+                    <tr className="hover:bg-transparent!"><td colSpan={10} className="bg-panel-2/30 p-0!"><TokenDevices id={t.id} /></td></tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </Table>
@@ -118,6 +142,58 @@ function Enrollment() {
           <Switch checked={form.autoApprove} onChange={(v) => setForm({ ...form, autoApprove: v })} label="Approve devices automatically" description="When off, new devices wait in “Pending approval” until an admin approves them" />
         </div>
       </Modal>
+    </div>
+  )
+}
+
+/** Token prefix with show / copy. The full token is decrypted server-side on demand (audited). */
+function TokenValue({ t }: { t: Token }) {
+  const [full, setFull] = useState<string | null>(null)
+  const reveal = async () => {
+    if (full) return full
+    try { const r = await api.post<{ token: string }>(`/api/agents/tokens/${t.id}/reveal`); setFull(r.token); return r.token }
+    catch (e) { toast.error(e instanceof ApiError ? e.message : 'Could not reveal token'); return null }
+  }
+  if (!t.revealable) return <span className="font-mono text-xs text-muted" title="Created before tokens could be revealed: only a hash is stored">{t.prefix}…</span>
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cx('font-mono text-xs', full && 'select-all text-fg')}>{full ?? `${t.prefix}…`}</span>
+      <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label={full ? 'Hide token' : 'Show token'} title={full ? 'Hide' : 'Show'}
+        onClick={async () => { if (full) setFull(null); else await reveal() }}>
+        {full ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      </button>
+      <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label="Copy token" title="Copy"
+        onClick={async () => { const v = await reveal(); if (v) { await navigator.clipboard.writeText(v); toast.success('Token copied', { description: 'Use it to enroll more PCs.' }) } }}>
+        <Copy className="size-3.5" />
+      </button>
+    </span>
+  )
+}
+
+/** Devices whose latest enrollment used this token, with live status. */
+function TokenDevices({ id }: { id: string }) {
+  const { data } = useQuery({ queryKey: ['token-devices', id], queryFn: () => api.get<TokenDevice[]>(`/api/agents/tokens/${id}/devices`), refetchInterval: 15_000 })
+  if (!data) return <div className="p-3"><Skeleton className="h-16" /></div>
+  if (data.length === 0) return <Empty icon={<Monitor className="size-4" />} title="No devices enrolled with this token" />
+  const tone = (s: string) => (s === 'active' ? 'good' : s === 'pending' ? 'warning' : 'neutral') as 'good' | 'warning' | 'neutral'
+  return (
+    <div className="border-l-2 border-brand/40 pl-6">
+      <Table>
+        <thead><tr><th>Device</th><th>Status</th><th>Connection</th><th>User</th><th>Branch</th><th>Agent</th><th>Enrolled</th></tr></thead>
+        <tbody>
+          {data.map((d) => (
+            <tr key={d.id}>
+              <td><Link to={`/devices/${d.id}`} className="font-medium hover:text-brand-ink hover:underline">{d.hostname}</Link><div className="text-xs text-muted">{d.os}</div></td>
+              <td><Badge tone={tone(d.status)}>{d.status}</Badge></td>
+              <td><span className="inline-flex items-center gap-1.5 text-xs"><OnlineDot online={d.online} />{d.online ? 'Online' : d.lastSeen ? `Last seen ${ago(d.lastSeen)}` : 'Never connected'}</span></td>
+              <td className="max-w-40 truncate text-xs text-fg-2">{d.user ?? '—'}</td>
+              <td className="text-xs text-fg-2">{d.orgUnit ?? 'Unassigned'}</td>
+              <td className="font-mono text-xs">{d.agentVersion}</td>
+              <td className="text-xs text-muted">{ago(d.enrolledAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
     </div>
   )
 }
@@ -252,7 +328,7 @@ function Releases() {
                       ))}
                     </div>
                   </td>
-                  <td><Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={async () => { if (confirm('Delete release?')) { await api.del(`/api/agents/releases/${r.id}`); qc.invalidateQueries({ queryKey: ['releases'] }) } }} /></td>
+                  <td><Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={async () => { if (await confirmDialog({ title: `Delete release ${r.version}?`, message: "The package is removed from the server. This can't be undone.", tone: 'danger' })) { await api.del(`/api/agents/releases/${r.id}`); qc.invalidateQueries({ queryKey: ['releases'] }) } }} /></td>
                 </tr>
               ))}
             </tbody>
@@ -292,7 +368,7 @@ function Trust() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-fg-2">Demo mode is generating a simulated island-wide fleet. Remove it before production use (also set <code className="font-mono">Demo:Enabled=false</code>).</p>
             <Button variant="danger" icon={<Trash2 className="size-4" />} onClick={async () => {
-              if (!confirm('Delete all simulated devices and their data?')) return
+              if (!(await confirmDialog({ title: 'Purge simulated devices?', message: 'All simulated devices and their data are deleted. Real devices are not affected.', confirmLabel: 'Purge', tone: 'danger' }))) return
               const r = await api.del<{ removed: number }>('/api/devices/simulated'); toast.success(`Removed ${r?.removed ?? 0} simulated devices`); qc.invalidateQueries()
             }}>Purge simulated devices</Button>
           </div>

@@ -57,6 +57,38 @@ public sealed class ServerKeys
         return h.ComputeHash("jwt-signing-key"u8.ToArray());
     }
 
+    /// <summary>Encrypts an enrollment token for storage (AES-256-GCM, key derived from the master key): nonce|tag|ciphertext, base64.</summary>
+    public string ProtectToken(string token)
+    {
+        var plain = Encoding.UTF8.GetBytes(token);
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var tag = new byte[16];
+        var cipher = new byte[plain.Length];
+        using (var aes = new AesGcm(TokenKey(), 16)) aes.Encrypt(nonce, plain, cipher, tag, "enroll-token"u8);
+        return Convert.ToBase64String([.. nonce, .. tag, .. cipher]);
+    }
+
+    /// <summary>Decrypts a value from <see cref="ProtectToken"/>; null if it was tampered with or the keys changed.</summary>
+    public string? UnprotectToken(string protectedToken)
+    {
+        try
+        {
+            var blob = Convert.FromBase64String(protectedToken);
+            if (blob.Length < 29) return null;
+            var plain = new byte[blob.Length - 28];
+            using var aes = new AesGcm(TokenKey(), 16);
+            aes.Decrypt(blob.AsSpan(0, 12), blob.AsSpan(28), blob.AsSpan(12, 16), plain, "enroll-token"u8);
+            return Encoding.UTF8.GetString(plain);
+        }
+        catch (Exception e) when (e is CryptographicException or FormatException) { return null; }
+    }
+
+    private byte[] TokenKey()
+    {
+        using var h = new HMACSHA256(MasterKey);
+        return h.ComputeHash("enroll-token-key"u8.ToArray());
+    }
+
     /// <summary>Signs a device CSR and returns a 1-year client-auth certificate.</summary>
     public X509Certificate2 IssueDeviceCertificate(string csrPem, Guid deviceId)
     {

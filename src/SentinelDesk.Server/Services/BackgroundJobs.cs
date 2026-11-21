@@ -178,13 +178,16 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IConfiguration
 public static class Seeder
 {
     /// <summary>EnsureCreated never alters an existing database - add columns introduced after the first release here.</summary>
-    private static async Task UpgradeSchemaAsync(AppDb db, ILogger log)
+    private static async Task<HashSet<string>> UpgradeSchemaAsync(AppDb db, ILogger log)
     {
         (string Table, string Column, string Ddl)[] columns =
         [
             ("Web", "BytesIn", "INTEGER NOT NULL DEFAULT 0"),
             ("Web", "BytesOut", "INTEGER NOT NULL DEFAULT 0"),
+            ("EnrollmentTokens", "TokenProtected", "TEXT NULL"),
+            ("Devices", "EnrollmentTokenId", "TEXT NULL"),
         ];
+        var added = new HashSet<string>();
         var conn = db.Database.GetDbConnection();
         await conn.OpenAsync();
         foreach (var (table, column, ddl) in columns)
@@ -194,14 +197,39 @@ public static class Seeder
             if (Convert.ToInt64(await check.ExecuteScalarAsync()) > 0) continue;
             await db.Database.ExecuteSqlRawAsync($"ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {ddl}");
             log.LogInformation("Database upgraded: added {Table}.{Column}", table, column);
+            added.Add($"{table}.{column}");
         }
+        return added;
     }
 
-    public static async Task SeedAsync(AppDb db, IConfiguration config, ILogger log)
+    /// <summary>
+    /// One-off when Devices.EnrollmentTokenId is introduced: recover each device's token from its latest enrollment
+    /// event ("Enrolled with token 'name'"), picking the newest token with that name created before the event.
+    /// </summary>
+    private static async Task BackfillDeviceTokensAsync(AppDb db, ILogger log)
+    {
+        var tokens = await db.EnrollmentTokens.AsNoTracking().Select(t => new { t.Id, t.Name, t.CreatedAt }).ToListAsync();
+        var events = await db.Events.AsNoTracking().Where(e => e.Type == "agent.enrolled" || e.Type == "agent.reenrolled")
+            .Select(e => new { e.DeviceId, e.Time, e.Message }).ToListAsync();
+        var linked = 0;
+        foreach (var ev in events.GroupBy(e => e.DeviceId).Select(g => g.MaxBy(e => e.Time)!))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(ev.Message ?? "", "token '(.*)'");
+            if (!m.Success) continue;
+            var tok = tokens.Where(t => t.Name == m.Groups[1].Value && t.CreatedAt <= ev.Time.AddMinutes(1)).MaxBy(t => t.CreatedAt);
+            if (tok is null) continue;
+            linked += await db.Devices.Where(d => d.Id == ev.DeviceId && d.EnrollmentTokenId == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.EnrollmentTokenId, tok.Id));
+        }
+        log.LogInformation("Linked {Count} existing device(s) to their enrollment token", linked);
+    }
+
+    public static async Task SeedAsync(AppDb db, ServerKeys keys, IConfiguration config, ILogger log)
     {
         await db.Database.EnsureCreatedAsync();
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-        await UpgradeSchemaAsync(db, log);
+        var added = await UpgradeSchemaAsync(db, log);
+        if (added.Contains("Devices.EnrollmentTokenId")) await BackfillDeviceTokensAsync(db, log);
 
         if (!await db.OrgUnits.AnyAsync())
         {
@@ -249,10 +277,12 @@ public static class Seeder
         if (config["Dev:EnrollToken"] is { Length: > 0 } devToken)
         {
             var hash = Endpoints.AgentEndpoints.HashToken(devToken);
-            if (!await db.EnrollmentTokens.AnyAsync(t => t.TokenHash == hash))
+            var existing = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.TokenHash == hash);
+            if (existing is not null) existing.TokenProtected ??= keys.ProtectToken(devToken); // already plain in config
+            else
                 db.EnrollmentTokens.Add(new EnrollmentToken
                 {
-                    Name = "Local development", TokenHash = hash, Prefix = devToken[..Math.Min(9, devToken.Length)],
+                    Name = "Local development", TokenHash = hash, TokenProtected = keys.ProtectToken(devToken), Prefix = devToken[..Math.Min(9, devToken.Length)],
                     OrgUnitId = (db.OrgUnits.Local.FirstOrDefault(o => o.Name == "Head Office") ?? await db.OrgUnits.FirstOrDefaultAsync(o => o.Name == "Head Office" || o.Name == "Colombo HQ"))?.Id,
                     ExpiresAt = DateTime.UtcNow.AddYears(5), UsesLeft = 1000, AutoApprove = true, CreatedBy = "system"
                 });

@@ -4,28 +4,26 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ── Design tokens — shadcn/ui layout (tauri-ui) in the SentinelDesk brand palette (doc/logo):
-   ink #1a1a2e (navy "Sentinel") · brand #ff6a00 (orange "Desk") · slate #6b6b80 (tagline)
-   flame gradient #ffaa13 → #ff6a00 → #ff3428
+   brand #ff6a00 (orange globe + "Desk") · ink #171717 ("Sentinel" on light) · white ("Sentinel" on dark)
+   neutral greys for everything else — the orange is the only brand hue
    page   = sidebar / app background      panel   = card / content surface
    panel-2= muted / accent surface        brand   = primary action / active state                                 */
 :root {
   color-scheme: light;
-  --page: #f7f7f9;
+  --page: #fafafa;
   --panel: #ffffff;
-  --panel-2: #f2f2f6;
-  --line: #e6e6ec;
-  --line-strong: #dcdce4;
-  --fg: #1a1a2e;
-  --fg-2: #3d3d55;
-  --muted: #6b6b80;
-  --grid: #ececf1;
-  --axis: #d0d0da;
+  --panel-2: #f4f4f5;
+  --line: #e7e7e9;
+  --line-strong: #dcdcdf;
+  --fg: #171717;
+  --fg-2: #3f3f46;
+  --muted: #71717a;
+  --grid: #ededef;
+  --axis: #d4d4d8;
   --brand: #ff6a00;
-  --brand-2: #ff3428;
+  --brand-2: #e05d00;
   --brand-soft: rgba(255, 106, 0, 0.1);
   --brand-ink: #c2410c;
-  --amber: #ffaa13;
-  --flame: linear-gradient(180deg, #ffaa13 0%, #ff6a00 55%, #ff3428 100%);
   --ring: #ff6a00;
   --radius: 0.625rem;
   /* series-1/2 (download/upload) validated with dataviz/validate_palette.js on #ffffff: all checks pass */
@@ -47,23 +45,23 @@
 
 :root.dark {
   color-scheme: dark;
-  --page: #0e0e19;
-  --panel: #1a1a2e;
-  --panel-2: #25253d;
+  --page: #0a0a0a;
+  --panel: #171717;
+  --panel-2: #232325;
   --line: rgba(255, 255, 255, 0.09);
   --line-strong: rgba(255, 255, 255, 0.15);
-  --fg: #f5f5f7;
-  --fg-2: #d2d2de;
-  --muted: #9a9ab0;
-  --grid: #25253d;
-  --axis: #3a3a55;
+  --fg: #fafafa;
+  --fg-2: #d4d4d8;
+  --muted: #a1a1aa;
+  --grid: #262628;
+  --axis: #3f3f46;
   --brand: #ff7a1a;
-  --brand-2: #ff4a3d;
+  --brand-2: #ff6a00;
   --brand-soft: rgba(255, 122, 26, 0.14);
   --brand-ink: #ff9a4d;
   --ring: #ff7a1a;
   --critical: #ef4444;
-  /* dark steps selected separately, validated on #1a1a2e: all checks pass */
+  /* dark steps selected separately, validated on #1a1a2e (same luminance band as the #171717 panel): all checks pass */
   --series-1: #e8620c;
   --series-2: #7176ee;
   --series-3: #199e70;
@@ -97,7 +95,6 @@
   --color-s2: var(--series-2);
   --color-ring: var(--ring);
   --color-brand-ink: var(--brand-ink);
-  --color-amber: var(--amber);
   --font-sans: "Geist Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
   --shadow-card: var(--shadow);
@@ -118,8 +115,6 @@ body {
 }
 ::selection { background: color-mix(in srgb, var(--brand) 25%, transparent); }
 input[type="checkbox"], input[type="radio"], progress { accent-color: var(--brand); }
-.bg-flame { background-image: var(--flame); }
-.text-flame { background-image: var(--flame); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .tabular { font-variant-numeric: tabular-nums; }
 
 /* scrollbars */

@@ -86,14 +86,14 @@ Var hUnKey
 ; ── pages ────────────────────────────────────────────────────────────────────────────────────────────────────
 !define MUI_ICON   "${ICON}"
 !define MUI_UNICON "${ICON}"
-; brand artwork (regenerate with make-installer-art.ps1): navy side panel + white header with the flame wordmark
+; brand artwork (regenerate with make-installer-art.ps1): ink side panel + white header with the globe wordmark
 !define MUI_WELCOMEFINISHPAGE_BITMAP   "wizard.bmp"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "wizard.bmp"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_RIGHT
 !define MUI_HEADERIMAGE_BITMAP   "header.bmp"
 !define MUI_HEADERIMAGE_UNBITMAP "header.bmp"
-!define MUI_TEXTCOLOR "1A1A2E"
+!define MUI_TEXTCOLOR "171717"
 !define MUI_BGCOLOR   "FFFFFF"
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING

@@ -12,7 +12,7 @@ namespace SentinelDesk.Setup
         private readonly SetupConfig _config;
         private readonly Panel _header = new Panel { Dock = DockStyle.Top, Height = 96 };
         private readonly Label _title = new Label { AutoSize = true, ForeColor = Color.White, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 15f) };
-        private readonly Label _subtitle = new Label { AutoSize = true, ForeColor = Color.FromArgb(220, 225, 255), BackColor = Color.Transparent, Font = new Font("Segoe UI", 9.5f) };
+        private readonly Label _subtitle = new Label { AutoSize = true, ForeColor = Color.FromArgb(212, 212, 216), BackColor = Color.Transparent, Font = new Font("Segoe UI", 9.5f) };
         private readonly Panel _body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(28, 20, 28, 12) };
         private readonly TextBox _server = new TextBox();
         private readonly TextBox _token = new TextBox();
@@ -43,7 +43,7 @@ namespace SentinelDesk.Setup
             _header.Controls.Add(_title);
             _header.Controls.Add(_subtitle);
 
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = 60, BackColor = Color.FromArgb(246, 246, 248) };
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = 60, BackColor = Color.FromArgb(250, 250, 250) };
             _install.Location = new Point(ClientSize.Width - 28 - 120, 13);
             _cancel.Location = new Point(_install.Left - 10 - 100, 13);
             StyleButton(_install, primary: true);
@@ -73,7 +73,7 @@ namespace SentinelDesk.Setup
             void Add(Control c, int h = 0) { c.Location = new Point(0, y); c.Width = _body.ClientSize.Width - _body.Padding.Horizontal; _body.Controls.Add(c); y += (h > 0 ? h : c.Height) + 6; }
             Label Text(string s, bool bold = false, Color? color = null) => new Label
             {
-                Text = s, AutoSize = false, Height = 20, ForeColor = color ?? Color.FromArgb(40, 40, 46),
+                Text = s, AutoSize = false, Height = 20, ForeColor = color ?? Ink,
                 Font = bold ? new Font("Segoe UI Semibold", 9.5f) : Font
             };
 
@@ -106,11 +106,11 @@ namespace SentinelDesk.Setup
             {
                 y += 6;
                 Add(Text("Management server", true));
-                Add(Text(_config.ServerUrl, color: Color.FromArgb(79, 70, 229)));
+                Add(Text(_config.ServerUrl, color: Color.FromArgb(0xC2, 0x41, 0x0C)));
                 if (!string.IsNullOrEmpty(_config.BranchName)) { Add(Text("Branch", true)); Add(Text(_config.BranchName)); }
                 y += 6;
                 var note = Text("Administrator rights are required. After installation the agent can only be removed with the organization's Uninstall Key.",
-                    color: Color.FromArgb(110, 110, 120));
+                    color: Color.FromArgb(113, 113, 122));
                 note.Height = 40;
                 Add(note);
             }
@@ -171,32 +171,36 @@ namespace SentinelDesk.Setup
             _finished = true;
         }
 
+        private static readonly Color Ink = Color.FromArgb(0x17, 0x17, 0x17);
+        private static readonly Color InkDeep = Color.FromArgb(0x0A, 0x0A, 0x0A);
+        private static readonly Color Orange = Color.FromArgb(0xFF, 0x6A, 0x00);
+        private Icon _logo;
+
         private void PaintHeader(object sender, PaintEventArgs e)
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var b = new LinearGradientBrush(_header.ClientRectangle, Color.FromArgb(79, 70, 229), Color.FromArgb(37, 99, 235), 0f))
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            using (var b = new LinearGradientBrush(_header.ClientRectangle, InkDeep, Ink, 0f))
                 g.FillRectangle(b, _header.ClientRectangle);
-            // shield glyph
-            var s = new GraphicsPath();
-            s.AddLines(new[] { new PointF(48, 18), new PointF(70, 27), new PointF(68, 47) });
-            s.AddBezier(68, 47, 65, 60, 56, 70, 48, 74);
-            s.AddBezier(48, 74, 40, 70, 31, 60, 28, 47);
-            s.AddLines(new[] { new PointF(28, 47), new PointF(26, 27) });
-            s.CloseFigure();
-            using (var fill = new SolidBrush(Color.FromArgb(60, 255, 255, 255))) g.FillPath(fill, s);
-            using (var pen = new Pen(Color.White, 3.2f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
-                g.DrawLines(pen, new[] { new PointF(38, 46), new PointF(45, 53), new PointF(58, 39) });
-            s.Dispose();
+            using (var accent = new SolidBrush(Orange))
+                g.FillRectangle(accent, 0, _header.Height - 3, _header.Width, 3);
+            // brand globe (embedded multi-size setup.ico)
+            if (_logo == null)
+            {
+                using (var s = typeof(SetupForm).Assembly.GetManifestResourceStream("setup.ico"))
+                    if (s != null) _logo = new Icon(s, 48, 48);
+            }
+            if (_logo != null) g.DrawIcon(_logo, new Rectangle(24, 23, 48, 48));
         }
 
         private static void StyleButton(Button b, bool primary)
         {
             b.FlatStyle = FlatStyle.Flat;
             b.FlatAppearance.BorderSize = primary ? 0 : 1;
-            b.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 208);
-            b.BackColor = primary ? Color.FromArgb(79, 70, 229) : Color.White;
-            b.ForeColor = primary ? Color.White : Color.FromArgb(40, 40, 46);
+            b.FlatAppearance.BorderColor = Color.FromArgb(212, 212, 216);
+            b.BackColor = primary ? Orange : Color.White;
+            b.ForeColor = primary ? Color.White : Ink;
             b.Font = new Font("Segoe UI Semibold", 9.5f);
             b.Cursor = Cursors.Hand;
         }

@@ -71,7 +71,8 @@ const xAxis = { tickLine: false, axisLine: false, tickMargin: 8, minTickGap: 32,
 interface Series { key: string; name: string; color: string }
 
 /**
- * The one area-chart look used everywhere: natural curves, vertical gradient fills, horizontal grid only,
+ * The one area-chart look used everywhere: monotone curves (smooth, but never overshoot below zero or
+ * cross stacked bands the way natural splines do), vertical gradient fills, horizontal grid only,
  * no y-axis (values live in the crosshair tooltip), 2px strokes and a surface-ringed active dot.
  */
 function AreaTrend({ data, xKey, series, height, stacked, yMax, yFormat, xFormat, tipFormat, total }: {
@@ -102,7 +103,7 @@ function AreaTrend({ data, xKey, series, height, stacked, yMax, yFormat, xFormat
         />
         {/* stacked: draw bottom series first so the top band sits above it */}
         {series.map((s) => (
-          <Area key={s.key} type="natural" dataKey={s.key} name={s.name} stackId={stacked ? 'a' : undefined}
+          <Area key={s.key} type="monotone" dataKey={s.key} name={s.name} stackId={stacked ? 'a' : undefined}
             stroke={s.color} strokeWidth={2} fill={`url(#${uid}-${s.key})`} fillOpacity={1}
             dot={few ? { r: 3, fill: s.color, stroke: 'var(--panel)', strokeWidth: 2 } : false}
             activeDot={{ r: 4.5, fill: s.color, stroke: 'var(--panel)', strokeWidth: 2 }}

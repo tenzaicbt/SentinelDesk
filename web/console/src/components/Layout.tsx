@@ -11,6 +11,7 @@ import { useHub, useHubEvent } from '../lib/hub'
 import { api } from '../lib/api'
 import { cx } from './ui'
 import { CommandPalette } from './CommandPalette'
+import brandIcon from '../assets/brand/icon.png'
 
 const nav = [
   { section: 'Monitor', items: [
@@ -101,7 +102,7 @@ export function Layout() {
       {/* header: team / product */}
       <div className="p-2">
         <NavLink to="/" className="flex h-12 items-center gap-2 rounded-md px-2 hover:bg-panel-2">
-          <img src="/brand/icon.png" alt="" className="size-8 shrink-0 object-contain" />
+          <img src={brandIcon} alt="" className="size-8 shrink-0 object-contain" />
           <div className="grid flex-1 text-left leading-tight">
             <Wordmark className="text-[15px]" />
             <span className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted">Endpoint metrics</span>
@@ -242,7 +243,7 @@ export function Credit({ className }: { className?: string }) {
   )
 }
 
-/** "Sentinel" in ink + "Desk" in brand orange, as in doc/logo. */
+/** "Sentinel" in ink (white when inverse) + "Desk" in brand orange, as in doc/logo. */
 export function Wordmark({ className, inverse }: { className?: string; inverse?: boolean }) {
   return (
     <span className={cx('truncate font-extrabold tracking-tight', inverse ? 'text-white' : 'text-fg', className)}>
@@ -254,7 +255,7 @@ export function Wordmark({ className, inverse }: { className?: string; inverse?:
 export function Brand({ inverse, size = 'md' }: { inverse?: boolean; size?: 'md' | 'lg' }) {
   return (
     <div className="flex items-center gap-3">
-      <img src="/brand/icon.png" alt="" className={cx('shrink-0 object-contain', size === 'lg' ? 'size-12' : 'size-9')} />
+      <img src={brandIcon} alt="" className={cx('shrink-0 object-contain', size === 'lg' ? 'size-12' : 'size-9')} />
       <div className="leading-tight">
         <Wordmark inverse={inverse} className={size === 'lg' ? 'text-2xl' : 'text-lg'} />
         <div className={cx('text-[10px] font-medium uppercase tracking-[0.2em]', inverse ? 'text-white/60' : 'text-muted')}>Endpoint metrics</div>

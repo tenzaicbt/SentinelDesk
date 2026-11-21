@@ -136,7 +136,7 @@ public static class Icons
         _ => Color.FromArgb(239, 68, 68)
     };
 
-    /// <summary>The SentinelDesk flame (embedded multi-size .ico) - window / taskbar icon.</summary>
+    /// <summary>The SentinelDesk globe (embedded multi-size .ico) - window / taskbar icon.</summary>
     public static Icon App => _app ??= LoadApp(32);
     private static Icon? _app;
 
@@ -146,7 +146,7 @@ public static class Icons
         return s is null ? (Icon)SystemIcons.Application.Clone() : new Icon(s, size, size);
     }
 
-    /// <summary>Flame logo with a status dot (green = connected, amber = offline/pending, red = problem).</summary>
+    /// <summary>Globe logo with a status dot (green = connected, amber = offline/pending, red = problem).</summary>
     public static Icon For(string state)
     {
         if (Cache.TryGetValue(state, out var ic)) return ic;
@@ -155,7 +155,7 @@ public static class Icons
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            using (var flame = LoadApp(32)) g.DrawIcon(flame, new Rectangle(0, 0, 32, 32));
+            using (var logo = LoadApp(32)) g.DrawIcon(logo, new Rectangle(0, 0, 32, 32));
             using var dot = new SolidBrush(ColorFor(state));
             g.FillEllipse(Brushes.White, 19, 19, 13, 13);
             g.FillEllipse(dot, 21, 21, 9, 9);

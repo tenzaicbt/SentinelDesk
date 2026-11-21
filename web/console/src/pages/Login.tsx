@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Button, Callout, Field, Input } from '../components/ui'
 import { Brand, Credit } from '../components/Layout'
+import brandIcon from '../assets/brand/icon.png'
 
 interface LoginResult { mfaRequired: boolean; token: string }
 
@@ -38,15 +39,14 @@ export function Login() {
 
   return (
     <div className="grid min-h-full lg:grid-cols-[1.1fr_1fr]">
-      <div className="relative hidden overflow-hidden bg-[#1a1a2e] p-12 text-white lg:flex lg:flex-col">
-        <div className="pointer-events-none absolute -left-32 -top-32 size-130 rounded-full bg-[#ff6a00]/25 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-40 right-0 size-120 rounded-full bg-[#ff3428]/20 blur-3xl" />
-        <div className="pointer-events-none absolute inset-0 opacity-[0.07]" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
-        <img src="/brand/icon.png" alt="" className="pointer-events-none absolute -right-24 top-1/2 size-110 -translate-y-1/2 opacity-[0.08]" />
+      <div className="relative hidden overflow-hidden bg-[#0a0a0a] p-12 text-white lg:flex lg:flex-col">
+        <div className="pointer-events-none absolute -left-32 -top-32 size-130 rounded-full bg-[#ff6a00]/22 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-40 right-0 size-120 rounded-full bg-[#ff6a00]/10 blur-3xl" />
+        <img src={brandIcon} alt="" className="pointer-events-none absolute -right-24 top-1/2 size-110 -translate-y-1/2 opacity-[0.08]" />
         <div className="relative"><Brand inverse size="lg" /></div>
         <div className="relative mt-auto max-w-lg">
           <h1 className="text-4xl font-semibold leading-tight tracking-tight">
-            Every company device,<br /><span className="text-flame">one secure view.</span>
+            Every company device,<br /><span className="text-[#ff6a00]">one secure view.</span>
           </h1>
           <p className="mt-4 text-white/70">
             Island-wide visibility of health, inventory, applications and data usage — with tamper-protected agents and end-to-end encryption.
@@ -59,7 +59,7 @@ export function Login() {
               [Sparkles, 'Privacy controls built in — PDPA No. 9 of 2022 aligned'],
             ].map(([Icon, t], i) => {
               const I = Icon as typeof Radio
-              return <li key={i} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-lg bg-[#ff6a00]/15 text-[#ffaa13]"><I className="size-4" /></span>{t as string}</li>
+              return <li key={i} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-lg bg-[#ff6a00]/15 text-[#ff8a3d]"><I className="size-4" /></span>{t as string}</li>
             })}
           </ul>
         </div>

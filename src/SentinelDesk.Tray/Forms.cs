@@ -22,7 +22,7 @@ public sealed class StatusForm : Form
         Location = new Point(wa.Right - Width - 16, wa.Bottom - Height - 16);
         DoubleBuffered = true;
         Font = new Font("Segoe UI", 9.5f);
-        BackColor = _dark ? Brand.NavyDeep : Color.White;
+        BackColor = _dark ? Brand.InkDeep : Color.White;
         Icon = Icons.App;
         ShowInTaskbar = false;
         TopMost = true;
@@ -56,14 +56,14 @@ public sealed class StatusForm : Form
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        var fg = _dark ? Color.FromArgb(245, 245, 247) : Brand.Navy;
-        var muted = _dark ? Color.FromArgb(154, 154, 176) : Brand.Slate;
-        var line = _dark ? Color.FromArgb(42, 42, 66) : Color.FromArgb(230, 230, 236);
+        var fg = _dark ? Color.FromArgb(250, 250, 250) : Brand.Ink;
+        var muted = _dark ? Color.FromArgb(161, 161, 170) : Brand.Slate;
+        var line = _dark ? Color.FromArgb(44, 44, 48) : Color.FromArgb(231, 231, 233);
 
-        // header band: navy with the flame-gradient accent line
-        using (var band = new LinearGradientBrush(new Rectangle(0, 0, ClientSize.Width, 84), Brand.Navy, Color.FromArgb(42, 42, 70), 0f))
+        // header band: ink with a brand-orange accent line
+        using (var band = new LinearGradientBrush(new Rectangle(0, 0, ClientSize.Width, 84), Brand.InkDeep, Brand.Ink, 0f))
             g.FillRectangle(band, 0, 0, ClientSize.Width, 84);
-        using (var accent = new LinearGradientBrush(new Rectangle(0, 82, ClientSize.Width, 2), Brand.Amber, Brand.Red, 0f))
+        using (var accent = new SolidBrush(Brand.Orange))
             g.FillRectangle(accent, 0, 82, ClientSize.Width, 2);
         g.DrawIcon(Icons.For(_state), new Rectangle(18, 22, 40, 40));
         using var title = new Font("Segoe UI", 13f, FontStyle.Bold);
@@ -132,8 +132,8 @@ public sealed class NoticeForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(520, 360);
         Font = new Font("Segoe UI", 10f);
-        BackColor = dark ? Brand.NavyDeep : Color.White;
-        ForeColor = dark ? Color.FromArgb(245, 245, 247) : Brand.Navy;
+        BackColor = dark ? Brand.InkDeep : Color.White;
+        ForeColor = dark ? Color.FromArgb(250, 250, 250) : Brand.Ink;
         Icon = Icons.App;
 
         var heading = new Label { Text = "This device is monitored", Font = new Font("Segoe UI Semibold", 14f), AutoSize = true, Location = new Point(24, 20) };
@@ -149,7 +149,7 @@ public sealed class NoticeForm : Form
         var credit = new LinkLabel
         {
             Text = Brand.Credit, AutoSize = true, Location = new Point(24, 316), Font = new Font("Segoe UI", 8.5f),
-            LinkColor = Brand.Orange, ActiveLinkColor = Brand.Red, ForeColor = dark ? Color.FromArgb(154, 154, 176) : Brand.Slate,
+            LinkColor = Brand.Orange, ActiveLinkColor = Brand.OrangeDeep, ForeColor = dark ? Color.FromArgb(161, 161, 170) : Brand.Slate,
             LinkBehavior = LinkBehavior.HoverUnderline,
         };
         credit.LinkArea = new LinkArea(Brand.Credit.IndexOf("www.", StringComparison.Ordinal), "www.lordefx.com".Length);
@@ -162,11 +162,10 @@ public sealed class NoticeForm : Form
 /// <summary>SentinelDesk brand palette (doc/logo).</summary>
 internal static class Brand
 {
-    public static readonly Color Navy = Color.FromArgb(0x1A, 0x1A, 0x2E);
-    public static readonly Color NavyDeep = Color.FromArgb(0x12, 0x12, 0x20);
+    public static readonly Color Ink = Color.FromArgb(0x17, 0x17, 0x17);
+    public static readonly Color InkDeep = Color.FromArgb(0x0A, 0x0A, 0x0A);
     public static readonly Color Orange = Color.FromArgb(0xFF, 0x6A, 0x00);
-    public static readonly Color Amber = Color.FromArgb(0xFF, 0xAA, 0x13);
-    public static readonly Color Red = Color.FromArgb(0xFF, 0x34, 0x28);
-    public static readonly Color Slate = Color.FromArgb(0x6B, 0x6B, 0x80);
+    public static readonly Color OrangeDeep = Color.FromArgb(0xE0, 0x5D, 0x00);
+    public static readonly Color Slate = Color.FromArgb(0x71, 0x71, 0x7A);
     public const string Credit = "© 2026 Yohan Koshala · www.lordefx.com";
 }

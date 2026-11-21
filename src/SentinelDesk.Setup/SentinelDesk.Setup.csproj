@@ -24,6 +24,7 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.ServiceProcess" />
+    <EmbeddedResource Include="setup.ico" LogicalName="setup.ico" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(AgentZip)' != ''">

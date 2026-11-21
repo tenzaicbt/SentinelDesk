@@ -35,7 +35,7 @@ export default function Dashboard() {
     return (
       <>
         <PageHeader title="Overview" icon={<LayoutDashboard className="size-5" />} />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32" />)}</div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32" />)}</div>
         <Skeleton className="mt-4 h-80" />
       </>
     )
@@ -52,7 +52,7 @@ export default function Dashboard() {
         icon={<LayoutDashboard className="size-5" />}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Devices online" icon={<Monitor className="size-4" />}
           value={<>{k.online}<span className="text-lg text-muted"> / {k.total}</span></>}
           sub={<span className="inline-flex items-center gap-1.5"><OnlineDot online />{onlinePct}% of fleet{k.pending ? ` · ${k.pending} pending approval` : ''}</span>} />
@@ -65,7 +65,7 @@ export default function Dashboard() {
           sub={k.criticalAlerts ? <Badge tone="critical">{k.criticalAlerts} critical</Badge> : <span>none critical</span>} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2" title="Network data usage" subtitle="All devices · last 14 days" actions={<Legend items={[{ label: 'Download', color: S.down }, { label: 'Upload', color: S.up }]} />}>
           <UsageBars data={data.usage} xKey="day" xFormat={shortDay} height={260} />
         </Card>
@@ -76,7 +76,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2" pad={false} title={<span className="inline-flex items-center gap-1.5"><MapPin className="size-3.5" />Branch network</span>}
           subtitle="Marker size = devices · ring = share online (green ≥80%, amber ≥50%, red below)">
           <div className="p-3 pt-1">
@@ -100,7 +100,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
         <Card title={<span className="inline-flex items-center gap-1.5"><AppWindow className="size-3.5" />Top applications today</span>} subtitle="Foreground (active) time across the fleet">
           {data.topApps.length ? (
             <RankBars rows={data.topApps.map((a) => ({ key: a.app, label: appName(a.app), value: a.seconds, sub: `${a.devices} PCs` }))} format={duration} />

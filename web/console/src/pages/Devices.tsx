@@ -197,7 +197,7 @@ export function MessageModal({ open, onClose, onSend, count }: { open: boolean; 
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" loading={busy} disabled={!body.trim()} onClick={async () => { setBusy(true); try { await onSend(title, body); onClose(); setBody('') } finally { setBusy(false) } }}>Send</Button>
       </>}>
-      <div className="space-y-4">
+      <div className="space-y-3">
         <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={60} /></Field>
         <Field label="Message" hint="Shown as a Windows notification from the SentinelDesk tray icon">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={250}

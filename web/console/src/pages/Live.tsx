@@ -56,7 +56,7 @@ export default function Live() {
       <PageHeader title="Live view" icon={<Radio className="size-5" />}
         subtitle={<span className="inline-flex items-center gap-2"><OnlineDot online={connected} />{connected ? 'Streaming heartbeats in real time' : 'Reconnecting…'}</span>} />
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Card><p className="text-sm text-muted">Online now</p><p className="mt-1 text-2xl font-semibold tabular">{rows.length}</p><p className="text-xs text-muted">{active} actively in use</p></Card>
         <Card><p className="text-sm text-muted">Fleet download</p><p className="mt-1 text-2xl font-semibold tabular text-fg">{bps(totalIn)}</p><p className="text-xs text-muted">sum of current rates</p></Card>
         <Card><p className="text-sm text-muted">Fleet upload</p><p className="mt-1 text-2xl font-semibold tabular">{bps(totalOut)}</p><p className="text-xs text-muted">sum of current rates</p></Card>

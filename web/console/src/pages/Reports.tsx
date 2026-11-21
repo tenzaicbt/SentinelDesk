@@ -78,7 +78,7 @@ function UsageReport({ data }: { data: UsageData }) {
   const total = data.rows.reduce((s, r) => s + r.totalMb, 0)
   const mb = (v: number) => (v >= 1024 ? `${(v / 1024).toFixed(2)} GB` : `${v.toFixed(1)} MB`)
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card className="xl:col-span-2" title="Daily totals" subtitle={`${mb(total)} across ${data.rows.length} devices`} actions={<Legend items={[{ label: 'Download', color: S.down }, { label: 'Upload', color: S.up }]} />}>
         <UsageBars data={data.series} xKey="day" xFormat={shortDay} />
       </Card>
@@ -111,7 +111,7 @@ function UsageReport({ data }: { data: UsageData }) {
 interface AppRow { app: string; hours: number; devices: number; avgHoursPerDevice: number }
 function AppsReport({ rows }: { rows: AppRow[] }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card title="Top applications" subtitle="Total active hours"><RankBars rows={rows.slice(0, 12).map((r) => ({ key: r.app, label: appName(r.app), value: r.hours }))} format={(v) => `${v} h`} /></Card>
       <Card className="xl:col-span-2" pad={false} title="All applications">
         <Table>
@@ -126,7 +126,7 @@ function AppsReport({ rows }: { rows: AppRow[] }) {
 interface WebData { rows: { domain: string; category: string; hits: number; devices: number }[]; categories: { category: string; hits: number }[] }
 function WebReport({ data }: { data: WebData }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card title="Categories"><RankBars color="var(--series-7)" rows={data.categories.map((c) => ({ key: c.category, label: c.category, value: c.hits }))} format={num} /></Card>
       <Card className="xl:col-span-2" pad={false} title="Domains">
         <Table>

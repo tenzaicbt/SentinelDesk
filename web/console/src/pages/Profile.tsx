@@ -26,7 +26,7 @@ function PasswordForm({ onDone }: { onDone?: () => void }) {
     finally { setBusy(false) }
   }
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} className="space-y-3">
       {error && <Callout tone="critical">{error}</Callout>}
       <Field label="Current password"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" /></Field>
       <Field label="New password" hint="At least 10 characters with upper, lower case and a digit">
@@ -41,13 +41,13 @@ function PasswordForm({ onDone }: { onDone?: () => void }) {
 export function ChangePasswordGate() {
   const { refresh, logout } = useAuth()
   return (
-    <div className="grid min-h-full place-items-center p-6">
+    <div className="grid min-h-full place-items-center p-4">
       <div className="w-full max-w-sm animate-rise">
         <Brand />
         <h2 className="mt-8 text-xl font-semibold">Set a new password</h2>
-        <p className="mb-6 mt-1 text-sm text-muted">Your password was issued by an administrator and must be changed before continuing.</p>
+        <p className="mb-4 mt-1 text-sm text-muted">Your password was issued by an administrator and must be changed before continuing.</p>
         <PasswordForm onDone={refresh} />
-        <button onClick={logout} className="mt-6 text-xs text-muted hover:text-fg">Sign out</button>
+        <button onClick={logout} className="mt-4 text-xs text-muted hover:text-fg">Sign out</button>
       </div>
     </div>
   )
@@ -76,7 +76,7 @@ export default function Profile() {
   return (
     <>
       <PageHeader title="Profile & security" icon={<UserCog className="size-5" />} subtitle="Manage your sign-in credentials" />
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card title="Account">
           <Kv items={[
             ['Username', me?.username], ['Name', me?.displayName], ['Role', <Badge tone="brand">{me?.role}</Badge>],
@@ -91,7 +91,7 @@ export default function Profile() {
               <Button variant="secondary" onClick={disable}>Disable</Button>
             </div>
           ) : setup ? (
-            <div className="flex flex-col gap-5 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <div className="rounded-xl bg-white p-3 self-start"><QRCodeSVG value={setup.uri} size={148} /></div>
               <div className="flex-1 space-y-3">
                 <p className="text-sm text-fg-2">Scan the QR code, or enter this key manually:</p>

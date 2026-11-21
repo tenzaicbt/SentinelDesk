@@ -43,7 +43,7 @@ export default function Policies() {
         subtitle="Signed configuration pushed to agents in real time · most specific assignment wins (device → department → branch → region → default)"
         actions={can.super && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create()}>New policy</Button>} />
       {!data ? <Skeleton className="h-96" /> : (
-        <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
           <div className="space-y-2">
             {data.map((p) => (
               <button key={p.id} onClick={() => setSelId(p.id)}
@@ -86,7 +86,7 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
   }
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="min-w-0 space-y-3">
       <Card>
         <div className="flex flex-wrap items-start gap-3">
           <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
@@ -108,9 +108,9 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
           <pre className="max-h-[600px] overflow-auto rounded-xl bg-panel-2 p-4 font-mono text-xs leading-relaxed">{JSON.stringify({ name, ...s }, null, 2)}</pre>
         </Card>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Card title="Collectors" subtitle="What the agent gathers">
-            <div className="space-y-4">
+            <div className="space-y-3">
               <Switch disabled={ro} checked={c.appUsage} onChange={(v) => setC({ appUsage: v })} label="Application usage time" description="Foreground app & active/idle time (tray, user session)" />
               <Switch disabled={ro} checked={c.webDomains} onChange={(v) => setC({ webDomains: v })} label="Websites (domain level)" description="DNS-Client ETW — domains only, no page content" />
               <Switch disabled={ro} checked={c.bandwidthPerAdapter} onChange={(v) => setC({ bandwidthPerAdapter: v })} label="Bandwidth per adapter" description="LAN / Wi-Fi / Mobile / VPN totals" />
@@ -122,9 +122,9 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
             </div>
           </Card>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Card title={<span className="inline-flex items-center gap-1.5"><EyeOff className="size-3.5" />Privacy</span>} subtitle="Data minimisation (PDPA)">
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <Field label="Window titles">
                   <Segmented value={c.captureWindowTitles} onChange={(v) => !ro && setC({ captureWindowTitles: v })}
                     options={[{ value: 'none', label: 'Don’t capture' }, { value: 'masked', label: 'Masked' }, { value: 'full', label: 'Full' }]} />
@@ -135,7 +135,7 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
               </div>
             </Card>
             <Card title={<span className="inline-flex items-center gap-1.5"><Upload className="size-3.5" />USB storage</span>}>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <Switch disabled={ro} checked={c.usbLog} onChange={(v) => setC({ usbLog: v })} label="Log removable storage" />
                 <Switch disabled={ro} checked={c.usbBlock} onChange={(v) => setC({ usbBlock: v })} label="Block USB mass storage" description="Applies to newly connected devices (USBSTOR disabled)" />
               </div>

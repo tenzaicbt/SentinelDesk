@@ -29,7 +29,7 @@ export default function Alerts() {
     <>
       <PageHeader title="Alerts" icon={<Bell className="size-5" />} subtitle="Rule-based detection across the fleet · notifications by console, email and Teams/webhook" />
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'alerts', label: 'Alerts', icon: <Bell className="size-3.5" /> }, { id: 'rules', label: 'Rules', icon: <Settings2 className="size-3.5" /> }]} />
-      <div className="mt-5">{tab === 'alerts' ? <AlertList /> : <Rules />}</div>
+      <div className="mt-3">{tab === 'alerts' ? <AlertList /> : <Rules />}</div>
     </>
   )
 }
@@ -146,7 +146,7 @@ function Rules() {
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Edit rule' : 'New alert rule'}
         footer={<><Button onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" onClick={save} disabled={!edit?.name}>Save rule</Button></>}>
         {edit && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Field label="Name"><Input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="e.g. Heavy data usage" /></Field>
             <Field label="Condition">
               <Select className="w-full" value={edit.type} onChange={(e) => setEdit({ ...edit, type: e.target.value })}>

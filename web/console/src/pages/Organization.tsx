@@ -85,7 +85,7 @@ export default function Organization() {
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Edit unit' : 'New unit'}
         footer={<><Button onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" onClick={save}>Save</Button></>}>
         {edit && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Field label="Name"><Input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} autoFocus /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type">

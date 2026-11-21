@@ -21,7 +21,7 @@ export default function Agents() {
         { id: 'releases', label: 'Releases & rollout', icon: <Rocket className="size-3.5" /> },
         { id: 'trust', label: 'Trust & keys', icon: <ShieldCheck className="size-3.5" /> },
       ]} />
-      <div className="mt-5">{tab === 'enroll' ? <Enrollment /> : tab === 'releases' ? <Releases /> : <Trust />}</div>
+      <div className="mt-3">{tab === 'enroll' ? <Enrollment /> : tab === 'releases' ? <Releases /> : <Trust />}</div>
     </>
   )
 }
@@ -50,9 +50,9 @@ function Enrollment() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <OfficeInstaller org={org} onCreated={() => qc.invalidateQueries({ queryKey: ['tokens'] })} />
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2" title="Manual / scripted deployment" subtitle="Elevated install (admin credentials) · works with GPO startup scripts, Intune Win32 apps or SCCM">
           <ol className="space-y-3 text-sm text-fg-2">
             <li><b className="text-fg">1.</b> Build the agent bundle: <code className="rounded bg-panel-2 px-1.5 font-mono text-xs">./build.ps1</code> → <code className="rounded bg-panel-2 px-1.5 font-mono text-xs">publish/agent</code></li>
@@ -103,7 +103,7 @@ function Enrollment() {
 
       <Modal open={open} onClose={() => setOpen(false)} title="New enrollment token"
         footer={<><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" disabled={!form.name} onClick={create}>Create token</Button></>}>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Kandy branch rollout" autoFocus /></Field>
           <Field label="Place enrolled devices in">
             <Select className="w-full" value={form.orgUnitId} onChange={(e) => setForm({ ...form, orgUnitId: e.target.value })}>
@@ -148,7 +148,7 @@ function OfficeInstaller({ org, onCreated }: { org?: OrgUnit[]; onCreated: () =>
       {!info ? <Skeleton className="h-40" /> : !info.available ? (
         <Callout tone="warning">The setup file has not been built yet. On the server run <code className="font-mono">.uild.ps1</code> - it creates <code className="font-mono">publish\SentinelDesk-Setup.exe</code>, then reload this page.</Callout>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-3">
             <Field label="Branch / office" hint="New PCs are placed here automatically">
               <Select className="w-full" value={f.orgUnitId} onChange={(e) => setF({ ...f, orgUnitId: e.target.value })}>
@@ -214,7 +214,7 @@ function Releases() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card title="Fleet versions" subtitle={`${total} active devices`}>
         <ul className="space-y-3">
           {data?.versions.map((v) => (
@@ -268,7 +268,7 @@ function Trust() {
   const { data } = useQuery({ queryKey: ['server-info'], queryFn: () => api.get<ServerInfo>('/api/agents/server-info') })
   if (!data) return <Skeleton className="h-64" />
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-3 lg:grid-cols-2">
       <Card title="Server key material" subtitle="Generated on first start; protected with DPAPI on the server">
         <Kv items={[
           ['Device CA thumbprint', <code className="font-mono text-xs">{data.caThumbprint}</code>],

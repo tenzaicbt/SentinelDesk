@@ -4,14 +4,14 @@ import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Activity, AppWindow, ArrowDown, ArrowLeft, ArrowUp, Ban, CheckCircle2, ChevronRight, Globe, KeyRound, Laptop, ListTree,
-  Cpu, MemoryStick, MessageSquare, Monitor, MoreHorizontal, Network, Package, RefreshCw, Trash2, Wifi, XCircle,
+  ClipboardList, Cpu, HardDrive, MemoryStick, MessageSquare, Monitor, MoreHorizontal, Network, Package, RefreshCw, Trash2, Wifi, XCircle,
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useHubEvent, useHubGroup, type LiveSample, type Presence } from '../lib/hub'
 import { ago, appName, bps, bytes, dateTime, duration, num, shortDay } from '../lib/format'
 import {
-  Badge, Button, Callout, Card, cx, Empty, Field, Input, Kv, Modal, OnlineDot, Segmented, Select, Skeleton,
+  Badge, Button, Callout, Card, cx, Empty, Field, Input, Kv, Meter, Modal, OnlineDot, Segmented, Select, Skeleton,
   StatusPill, Table, Tabs,
 } from '../components/ui'
 import { ActivityBars, Legend, Lines, RankBars, S, Sparkline, UsageBars } from '../components/charts'
@@ -33,7 +33,7 @@ interface Device {
   hardware?: HardwareInfo; hardwareCollectedAt?: string; security?: SecurityPosture; securityCollectedAt?: string; liveChannel: boolean
 }
 
-type Tab = 'live' | 'bandwidth' | 'web' | 'network'
+type Tab = 'live' | 'details' | 'bandwidth' | 'web' | 'network'
 
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>()
@@ -88,13 +88,14 @@ export default function DeviceDetail() {
   })
 
   if (error) return <Callout tone="critical">{(error as Error).message}</Callout>
-  if (isLoading || !d) return <div className="space-y-4"><Skeleton className="h-24" /><Skeleton className="h-96" /></div>
+  if (isLoading || !d) return <div className="space-y-3"><Skeleton className="h-24" /><Skeleton className="h-96" /></div>
 
   const online = !!presence && Date.now() - new Date(presence.lastSeen).getTime() < 150_000
   const laptop = d.tags?.includes('laptop') || /book|thinkpad|latitude|notebook/i.test(d.model ?? '')
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'live', label: 'Live activity', icon: <Activity className="size-3.5" /> },
+    { id: 'details', label: 'Details', icon: <ClipboardList className="size-3.5" /> },
     { id: 'bandwidth', label: 'Internet usage', icon: <ArrowDown className="size-3.5" /> },
     ...(can.web ? [{ id: 'web' as Tab, label: 'Browsing', icon: <Globe className="size-3.5" /> }] : []),
     { id: 'network', label: 'Network', icon: <Network className="size-3.5" /> },
@@ -108,19 +109,19 @@ export default function DeviceDetail() {
       </nav>
 
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="relative grid size-12 place-items-center rounded-lg border border-line bg-panel-2 text-fg">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="relative grid size-12 shrink-0 place-items-center rounded-lg border border-line bg-panel-2 text-fg">
             {laptop ? <Laptop className="size-6" /> : <Monitor className="size-6" />}
             <OnlineDot online={online} className="absolute -right-1 -top-1 size-3 ring-2 ring-panel dark:ring-page" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">
               {d.hostname}
               <StatusPill online={online} />
               {d.status !== 'active' && <Badge tone="warning">{d.status}</Badge>}
               {d.isSimulated && <Badge tone="brand">demo</Badge>}
             </h1>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-1 truncate text-sm text-muted">
               {[d.manufacturer, d.model].filter(Boolean).join(' ')} · {d.os} ({d.osBuild}) · {online ? `${presence?.user ?? d.loggedInUser ?? 'no user'}` : `last seen ${ago(d.lastSeenAt)}`}
             </p>
           </div>
@@ -129,12 +130,13 @@ export default function DeviceDetail() {
       </div>
 
       {d.status === 'pending' && can.write && (
-        <div className="mb-4"><Callout tone="warning">This device enrolled and is awaiting approval. Telemetry is buffered on the device until it is approved.</Callout></div>
+        <div className="mb-3"><Callout tone="warning">This device enrolled and is awaiting approval. Telemetry is buffered on the device until it is approved.</Callout></div>
       )}
 
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
-      <div className="mt-5">
+      <div className="mt-4">
         {tab === 'live' && <LiveActivity d={d} p={online ? presence : undefined} netHist={netHist} stream={online ? stream : undefined} />}
+        {tab === 'details' && <Details d={d} p={online ? presence : undefined} online={online} />}
         {tab === 'bandwidth' && <Bandwidth id={d.id} p={online ? presence : undefined} netHist={netHist} stream={online ? stream : undefined} />}
         {tab === 'web' && <Websites id={d.id} />}
         {tab === 'network' && <NetworkDetails d={d} p={online ? presence : undefined} />}
@@ -185,7 +187,7 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
       <div className="relative">
         <Button icon={<MoreHorizontal className="size-4" />} onClick={() => setMenu((m) => !m)} aria-label="More actions" />
         {menu && (
-          <div className="absolute right-0 top-11 z-20 w-60 rounded-lg border border-line bg-panel p-1 shadow-md animate-rise" onMouseLeave={() => setMenu(false)}>
+          <div className="absolute right-0 top-9 z-20 w-60 rounded-lg border border-line bg-panel p-1 shadow-md animate-rise" onMouseLeave={() => setMenu(false)}>
             <MenuItem icon={<ListTree className="size-4" />} onClick={() => { setMove(true); setMenu(false) }}>Move to branch…</MenuItem>
             <MenuItem icon={<KeyRound className="size-4" />} onClick={uninstallCode}>Generate one-time uninstall code</MenuItem>
             {d.status === 'active'
@@ -206,9 +208,9 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
       <MessageModal open={msg} onClose={() => setMsg(false)} count={1} onSend={async (t, b) => cmd('showMessage', JSON.stringify({ title: t, body: b }))} />
       <MoveModal open={move} onClose={() => setMove(false)} d={d} />
       <Modal open={!!code} onClose={() => setCode(null)} title="One-time uninstall code" footer={<Button variant="primary" onClick={() => setCode(null)}>Done</Button>}>
-        <div className="space-y-4 text-sm">
+        <div className="space-y-3 text-sm">
           <p className="text-fg-2">Give this code to the on-site technician. It works only on <b>{d.hostname}</b>, together with local administrator rights, until {dateTime(code?.expiresUtc)}.</p>
-          <div className="rounded-lg bg-panel-2 py-5 text-center font-mono text-2xl font-semibold tracking-[0.2em]">{code?.code}</div>
+          <div className="rounded-lg bg-panel-2 py-3 text-center font-mono text-2xl font-semibold tracking-[0.2em]">{code?.code}</div>
           <Callout tone="warning">The code is pushed to the device as a signed command; the device must be online (or check in) before it can be used.</Callout>
         </div>
       </Modal>
@@ -233,7 +235,7 @@ function MoveModal({ open, onClose, d }: { open: boolean; onClose: () => void; d
           toast.success('Device updated — policy will be re-evaluated'); qc.invalidateQueries({ queryKey: ['device', d.id] }); onClose()
         } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Request failed') }
       }}>Save</Button></>}>
-      <div className="space-y-4">
+      <div className="space-y-3">
         <Field label="Branch / department">
           <Select value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full">
             <option value="">Unassigned</option>
@@ -251,10 +253,10 @@ function LiveActivity({ d, p, netHist, stream }: { d: Device; p?: Presence; netH
   const todayIn = Math.max(d.today.bytesIn, p?.todayIn ?? 0)
   const todayOut = Math.max(d.today.bytesOut, p?.todayOut ?? 0)
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Card title="Right now" actions={<StreamBadge stream={stream} />}
         subtitle={p ? (stream ? `Streaming live · a new sample every ${stream.intervalMs} ms` : `Updated ${ago(p.lastSeen)} · ${d.liveChannel ? 'live channel connected' : 'heartbeat polling'}`) : `Device offline · last seen ${ago(d.lastSeenAt)}`}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-6">
           <MiniStat icon={<AppWindow className="size-3.5" />} label="Foreground app" value={p?.currentApp ? appName(p.currentApp) : '—'}
             sub={p ? (p.locked ? 'Screen locked' : p.idle ? 'Idle' : `In use by ${p.user ?? d.loggedInUser ?? 'unknown'}`) : 'Offline'} />
           <MiniStat icon={<ArrowDown className="size-3.5 text-s1" />} label="Download now" value={bps(p?.netInBps)} spark={netHist.map((h) => h.in)} color={S.down} />
@@ -273,7 +275,7 @@ function LiveActivity({ d, p, netHist, stream }: { d: Device; p?: Presence; netH
 function NetworkDetails({ d, p }: { d: Device; p?: Presence }) {
   const nics = d.hardware?.nics ?? []
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-3 lg:grid-cols-3">
       <Card title="Connection">
         <Kv items={[
           ['Status', p ? <Badge tone="good">Online</Badge> : <Badge>Offline · {ago(d.lastSeenAt)}</Badge>],
@@ -302,9 +304,9 @@ function NetworkDetails({ d, p }: { d: Device; p?: Presence }) {
 
 function MiniStat({ icon, label, value, sub, spark, sparkMax, color }: { icon: React.ReactNode; label: string; value: string; sub?: string; spark?: number[]; sparkMax?: number; color?: string }) {
   return (
-    <div className="rounded-lg border border-line bg-panel-2/40 p-3">
+    <div className="rounded-md border border-line bg-panel-2/40 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-xs text-muted">{icon}{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular">{value}</div>
+      <div className="truncate text-base font-semibold tabular">{value}</div>
       {spark ? <Sparkline values={spark} max={sparkMax} color={color} height={22} /> : <div className="text-[11px] text-muted">{sub}</div>}
     </div>
   )
@@ -325,10 +327,10 @@ function Apps({ id, p }: { id: string; p?: Presence }) {
   if (!data) return <Skeleton className="h-96" />
   const prod = data.totalActiveSec + data.totalIdleSec ? Math.round((data.totalActiveSec / (data.totalActiveSec + data.totalIdleSec)) * 100) : 0
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card className="xl:col-span-3" title="Activity by hour" subtitle={days === 1 ? 'Today, minutes per hour' : `Average per day over ${days} days`}
         actions={<Segmented value={days} onChange={setDays} options={[{ value: 1, label: 'Today' }, { value: 7, label: '7 days' }, { value: 30, label: '30 days' }]} />}>
-        <div className="mb-3 flex flex-wrap items-center gap-6 text-sm">
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
           <div><span className="text-muted">Active </span><span className="font-semibold tabular">{duration(data.totalActiveSec)}</span></div>
           <div><span className="text-muted">Idle </span><span className="font-semibold tabular">{duration(data.totalIdleSec)}</span></div>
           <div><span className="text-muted">Active share </span><span className="font-semibold tabular">{prod}%</span></div>
@@ -394,7 +396,7 @@ function Bandwidth({ id, p, netHist, stream }: { id: string; p?: Presence; netHi
   const legend = <Legend items={[{ label: 'Download', color: S.down }, { label: 'Upload', color: S.up }]} />
   const total = data?.daily.reduce((s, x) => s + x.bytesIn + x.bytesOut, 0) ?? 0
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <Card className="xl:col-span-2" title="Live throughput"
         subtitle={p ? (stream ? `Streaming live · every ${stream.intervalMs} ms` : 'From heartbeats (every few seconds) until the live stream connects') : 'Device offline'}
         actions={<div className="flex items-center gap-3"><StreamBadge stream={stream} />{legend}</div>}>
@@ -494,7 +496,7 @@ function Websites({ id }: { id: string }) {
     .sort((a, b) => sort === 'data' ? (b.bytesIn + b.bytesOut) - (a.bytesIn + a.bytesOut) || b.hits - a.hits : b.hits - a.hits)
   const total = data.totalBytesIn + data.totalBytesOut
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-3 xl:grid-cols-3">
       <LiveSites id={id} />
       <Card className="xl:col-span-3">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -550,5 +552,93 @@ function StreamBadge({ stream }: { stream?: StreamState }) {
     <span className="inline-flex items-center gap-1.5 rounded-full bg-good/12 px-2 py-0.5 text-[11px] font-medium text-good-ink">
       <span className="pulse-dot size-1.5 rounded-full bg-good" />Live · {stream.intervalMs} ms
     </span>
+  )
+}
+
+// ───────────────────────── Details ─────────────────────────
+/** Everything known about the device on one screen: four dense columns + a storage table. */
+function Details({ d, p, online }: { d: Device; p?: Presence; online: boolean }) {
+  const h = d.hardware
+  const s = d.security
+  const mono = (v?: string | null) => (v ? <span className="font-mono text-xs" title={v}>{v}</span> : '—')
+  const yes = (v: boolean | undefined | null, goodWhen = true) =>
+    v === undefined || v === null ? '—' : <Badge tone={v === goodWhen ? 'good' : 'critical'}>{v ? 'Yes' : 'No'}</Badge>
+  const collected = (at?: string) => (at ? `Collected ${ago(at)}` : 'Not collected yet')
+  return (
+    <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+      <Card title="Device">
+        <Kv items={[
+          ['Hostname', <span className="font-medium">{d.hostname}</span>],
+          ['Domain', d.domain ?? h?.domain ?? '—'],
+          ['Branch', d.orgPath.length ? <span title={d.orgPath.join(' / ')}>{d.orgPath.join(' / ')}</span> : '—'],
+          ['User', p?.user ?? d.loggedInUser ?? '—'],
+          ['Manufacturer', h?.manufacturer ?? d.manufacturer ?? '—'],
+          ['Model', h?.model ?? d.model ?? '—'],
+          ['Serial', mono(h?.serial ?? d.serial)],
+          ['Tags', d.tags || '—'],
+          ['Enrolled', dateTime(d.enrolledAt)],
+          ['Last seen', online ? <Badge tone="good">Now</Badge> : ago(d.lastSeenAt)],
+        ]} />
+      </Card>
+      <Card title="Hardware" subtitle={collected(d.hardwareCollectedAt)}>
+        <Kv items={[
+          ['CPU', h?.cpu ? <span title={h.cpu}>{h.cpu}</span> : '—'],
+          ['Cores / threads', h ? `${h.cpuCores} / ${h.cpuThreads}` : '—'],
+          ['Memory', h?.ramMb ? `${(h.ramMb / 1024).toFixed(h.ramMb % 1024 ? 1 : 0)} GB` : '—'],
+          ['GPU', h?.gpu ? <span title={h.gpu}>{h.gpu}</span> : '—'],
+          ['TPM', yes(h?.tpmPresent)],
+          ['BIOS', h?.biosVersion ?? '—'],
+          ['OS', <span title={h?.os ?? d.os}>{h?.os ?? d.os}</span>],
+          ['Build', mono(h?.osBuild ?? d.osBuild)],
+          ['CPU now', p ? `${p.cpu.toFixed(0)}%` : '—'],
+          ['Memory now', p ? `${p.ram.toFixed(0)}%` : '—'],
+        ]} />
+      </Card>
+      <Card title="Security" subtitle={collected(d.securityCollectedAt)}>
+        <Kv items={[
+          ['Antivirus', s?.antivirus ? <span title={s.antivirus}>{s.antivirus}</span> : '—'],
+          ['AV enabled', yes(s?.antivirusEnabled)],
+          ['AV up to date', yes(s?.antivirusUpToDate)],
+          ['Firewall', yes(s?.firewallEnabled)],
+          ['BitLocker', s?.bitLocker ? <Badge tone={/^on/i.test(s.bitLocker) ? 'good' : 'warning'}>{s.bitLocker}</Badge> : '—'],
+          ['Last update', s?.lastUpdateInstalled ? s.lastUpdateInstalled.slice(0, 10) : '—'],
+          ['Reboot pending', yes(s?.rebootPending, false)],
+          ['USB storage blocked', s?.usbStorageBlocked === undefined ? '—' : <Badge>{s.usbStorageBlocked ? 'Yes' : 'No'}</Badge>],
+        ]} />
+      </Card>
+      <Card title="Agent & policy">
+        <Kv items={[
+          ['Agent version', mono(d.agentVersion)],
+          ['Status', <Badge tone={d.status === 'active' ? 'good' : 'warning'}>{d.status}</Badge>],
+          ['Policy', <span title={d.policy.name}>{d.policy.name} · v{d.policy.effectiveVersion}</span>],
+          ['Policy applied', yes(d.policy.applied)],
+          ['Server link', d.liveChannel ? <Badge tone="good">Live channel</Badge> : <Badge>Heartbeat</Badge>],
+          ['Local IP', mono(p?.ip ?? d.lastIp)],
+          ['Public IP', mono(d.publicIp)],
+          ['Certificate expires', d.certExpiresAt ? dateTime(d.certExpiresAt) : '—'],
+          ['Certificate', mono(d.certThumbprint)],
+          ['Machine ID', mono(d.machineId)],
+        ]} />
+      </Card>
+      <Card className="md:col-span-2 2xl:col-span-4" title="Storage" pad={false}>
+        {h?.disks.length ? (
+          <Table>
+            <thead><tr><th>Drive</th><th>Model</th><th>Type</th><th className="text-right">Size</th><th className="text-right">Free</th><th className="w-1/4">Used</th></tr></thead>
+            <tbody>
+              {h.disks.map((k) => (
+                <tr key={k.name + (k.model ?? '')}>
+                  <td className="font-medium">{k.name}</td>
+                  <td className="max-w-60 truncate text-fg-2" title={k.model}>{k.model ?? '—'}</td>
+                  <td>{k.type ? <Badge>{k.type}</Badge> : '—'}</td>
+                  <td className="text-right tabular">{num(k.sizeGb)} GB</td>
+                  <td className="text-right tabular">{num(k.freeGb)} GB</td>
+                  <td><Meter value={k.sizeGb ? ((k.sizeGb - k.freeGb) / k.sizeGb) * 100 : null} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : <Empty icon={<HardDrive className="size-4" />} title="Disk details not collected yet" />}
+      </Card>
+    </div>
   )
 }

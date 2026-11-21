@@ -9,17 +9,17 @@ export function Card({ className, children, title, subtitle, actions, pad = true
   className?: string; children?: ReactNode; title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; pad?: boolean
 }) {
   return (
-    <section className={cx('rounded-xl border border-line bg-panel text-fg shadow-card animate-rise min-w-0', className)}>
+    <section className={cx('rounded-lg border border-line bg-panel text-fg shadow-card animate-rise min-w-0', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 px-6 pt-5 pb-1">
+        <header className="flex items-start justify-between gap-3 px-4 pt-3">
           <div className="min-w-0">
             {title && <h2 className="text-sm leading-none font-semibold text-fg">{title}</h2>}
-            {subtitle && <p className="mt-1.5 text-[13px] text-muted">{subtitle}</p>}
+            {subtitle && <p className="mt-1 text-xs text-muted">{subtitle}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cx(pad && 'px-6 py-5', pad && (title || actions) && 'pt-4')}>{children}</div>
+      <div className={cx(pad && 'px-4 py-3', pad && (title || actions) && 'pt-2.5', !pad && (title || actions) && 'mt-2.5')}>{children}</div>
     </section>
   )
 }
@@ -34,7 +34,7 @@ export function Button({ variant = 'secondary', size = 'md', loading, icon, clas
       className={cx(
         'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all select-none whitespace-nowrap [&_svg]:shrink-0',
         'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 disabled:pointer-events-none',
-        size === 'sm' ? 'h-8 px-3 text-xs gap-1.5' : 'h-9 px-4 text-sm',
+        size === 'sm' ? 'h-7 px-2.5 text-xs gap-1.5' : 'h-8 px-3 text-sm',
         variant === 'primary' && 'bg-brand text-white shadow-xs hover:bg-brand/90',
         variant === 'secondary' && 'border border-line-strong bg-panel text-fg shadow-xs hover:bg-panel-2 dark:bg-white/4.5 dark:hover:bg-white/10',
         variant === 'ghost' && 'text-fg hover:bg-panel-2',
@@ -53,7 +53,7 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
     <input
       {...rest}
       className={cx(
-        'h-9 w-full min-w-0 rounded-md border border-line-strong bg-transparent px-3 py-1 text-sm text-fg shadow-xs placeholder:text-muted dark:bg-white/4.5',
+        'h-8 w-full min-w-0 rounded-md border border-line-strong bg-transparent px-2.5 py-1 text-sm text-fg shadow-xs placeholder:text-muted dark:bg-white/4.5',
         'outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50',
         className,
       )}
@@ -66,7 +66,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
     <select
       {...rest}
       className={cx(
-        'h-9 rounded-md border border-line-strong bg-transparent px-3 pr-8 text-sm text-fg shadow-xs outline-none dark:bg-white/4.5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>option]:bg-panel',
+        'h-8 rounded-md border border-line-strong bg-transparent px-2.5 pr-8 text-sm text-fg shadow-xs outline-none dark:bg-white/4.5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>option]:bg-panel',
         className,
       )}
     >
@@ -78,9 +78,9 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
 export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={cx('block', className)}>
-      <span className="mb-2 block text-sm font-medium leading-none text-fg">{label}</span>
+      <span className="mb-1.5 block text-[13px] font-medium leading-none text-fg">{label}</span>
       {children}
-      {hint && <span className="mt-1.5 block text-xs text-muted">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
     </label>
   )
 }
@@ -184,12 +184,12 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: 
 
 export function Segmented<T extends string | number>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div className="inline-flex h-8 items-center rounded-lg bg-panel-2 p-0.75">
+    <div className="inline-flex h-7 items-center rounded-lg bg-panel-2 p-0.75">
       {options.map((o) => (
         <button
           key={String(o.value)}
           onClick={() => onChange(o.value)}
-          className={cx('h-full rounded-md border border-transparent px-2.5 text-xs font-medium transition', value === o.value ? 'bg-panel text-fg shadow-sm dark:border-line-strong dark:bg-white/6' : 'text-muted hover:text-fg')}
+          className={cx('h-full rounded-md border border-transparent px-2 text-xs font-medium transition', value === o.value ? 'bg-panel text-fg shadow-sm dark:border-line-strong dark:bg-white/6' : 'text-muted hover:text-fg')}
         >
           {o.label}
         </button>
@@ -211,12 +211,12 @@ export function Modal({ open, onClose, title, children, footer, width = 'max-w-l
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[10vh]" onMouseDown={onClose}>
       <div role="dialog" aria-modal className={cx('w-full rounded-lg border border-line bg-panel shadow-lg animate-rise', width)} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 pt-6 pb-2">
-          <h3 className="text-lg leading-none font-semibold">{title}</h3>
+        <div className="flex items-center justify-between px-5 pt-4 pb-1">
+          <h3 className="text-base leading-none font-semibold">{title}</h3>
           <button onClick={onClose} className="rounded-sm p-1 text-muted opacity-70 transition hover:opacity-100 hover:text-fg" aria-label="Close"><X className="size-4" /></button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-6 pb-6 pt-2">{footer}</div>}
+        <div className="max-h-[75vh] overflow-y-auto px-5 py-3">{children}</div>
+        {footer && <div className="flex justify-end gap-2 px-5 pb-4 pt-1">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -225,7 +225,7 @@ export function Modal({ open, onClose, title, children, footer, width = 'max-w-l
 
 export function PageHeader({ title, subtitle, actions, icon }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; icon?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
         {icon && <div className="grid size-10 place-items-center rounded-lg border border-line bg-panel-2 text-fg [&_svg]:size-5">{icon}</div>}
         <div className="min-w-0">
@@ -242,11 +242,11 @@ export function Stat({ label, value, sub, icon, trend }: { label: string; value:
   return (
     <Card className="relative overflow-hidden">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-muted">{label}</p>
-        {icon && <span className="text-muted">{icon}</span>}
+        <p className="text-xs text-muted">{label}</p>
+        {icon && <span className="text-muted [&_svg]:size-3.5">{icon}</span>}
       </div>
-      <p className="mt-2 text-2xl font-semibold tracking-tight tabular xl:text-3xl">{value}</p>
-      <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+      <p className="mt-1 text-xl font-semibold tracking-tight tabular xl:text-2xl">{value}</p>
+      <div className="mt-1 flex items-center gap-2 text-xs text-muted">
         {trend && Number.isFinite(trend.value) && (
           <span className={cx('font-medium tabular', (trend.value <= 0) === !!trend.goodWhenDown || trend.value === 0 ? 'text-good-ink' : 'text-fg-2')}>
             {trend.value > 0 ? '▲' : trend.value < 0 ? '▼' : '•'} {Math.abs(trend.value).toFixed(0)}%
@@ -260,8 +260,8 @@ export function Stat({ label, value, sub, icon, trend }: { label: string; value:
 
 export function Empty({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-      {icon && <div className="grid size-10 place-items-center rounded-lg border border-line bg-panel-2 text-fg">{icon}</div>}
+    <div className="flex flex-col items-center justify-center gap-1.5 py-6 text-center">
+      {icon && <div className="grid size-8 place-items-center rounded-md border border-line bg-panel-2 text-fg [&_svg]:size-4">{icon}</div>}
       <p className="text-sm font-medium">{title}</p>
       {children && <div className="max-w-sm text-xs text-muted">{children}</div>}
     </div>
@@ -314,15 +314,15 @@ export function Callout({ tone: t = 'brand', children, icon }: { tone?: 'brand' 
     good: 'border-good/30 bg-good/8',
   }
   const icons = { brand: <Info className="size-4 shrink-0 translate-y-0.5 text-brand-ink" />, warning: <AlertTriangle className="size-4 text-amber-600 dark:text-warning" />, critical: <OctagonAlert className="size-4 text-critical" />, good: <CheckCircle2 className="size-4 text-good-ink" /> }
-  return <div className={cx('flex gap-3 rounded-lg border px-4 py-3 text-sm', styles[t])}>{icon ?? icons[t]}<div className="min-w-0 flex-1">{children}</div></div>
+  return <div className={cx('flex gap-2.5 rounded-md border px-3 py-2 text-[13px]', styles[t])}>{icon ?? icons[t]}<div className="min-w-0 flex-1">{children}</div></div>
 }
 
 export function Kv({ items }: { items: [string, ReactNode][] }) {
   return (
-    <dl className="divide-y divide-line text-sm">
+    <dl className="divide-y divide-line text-[13px]">
       {items.map(([k, v]) => (
-        <div key={k} className="flex items-center justify-between gap-4 py-2">
-          <dt className="text-muted">{k}</dt>
+        <div key={k} className="flex items-center justify-between gap-3 py-1.5">
+          <dt className="shrink-0 text-muted">{k}</dt>
           <dd className="min-w-0 truncate text-right text-fg">{v ?? '—'}</dd>
         </div>
       ))}
@@ -333,7 +333,7 @@ export function Kv({ items }: { items: [string, ReactNode][] }) {
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cx('overflow-x-auto', className)}>
-      <table className="w-full caption-bottom text-sm [&_thead_tr]:border-b [&_thead_tr]:border-line [&_th]:h-10 [&_th]:whitespace-nowrap [&_th]:px-3 [&_th]:text-left [&_th]:align-middle [&_th]:font-medium [&_th]:text-fg [&_td]:px-3 [&_td]:py-2.5 [&_td]:align-middle [&_tbody_tr]:border-b [&_tbody_tr]:border-line [&_tbody_tr:last-child]:border-0 [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-panel-2/50">
+      <table className="w-full caption-bottom text-sm [&_thead_tr]:border-b [&_thead_tr]:border-line [&_th]:h-8 [&_th]:whitespace-nowrap [&_th]:px-2.5 [&_th]:text-left [&_th]:align-middle [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted [&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-middle [&_tbody_tr]:border-b [&_tbody_tr]:border-line [&_tbody_tr:last-child]:border-0 [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-panel-2/50">
         {children}
       </table>
     </div>

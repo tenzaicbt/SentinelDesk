@@ -6,6 +6,7 @@ import { Toaster } from 'sonner'
 import './index.css'
 import { App } from './App'
 import { AuthProvider } from './lib/auth'
+import { DialogHost } from './components/dialog'
 
 const qc = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } },
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <App />
           <Toaster position="bottom-right" richColors closeButton theme="system" />
+          <DialogHost />
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

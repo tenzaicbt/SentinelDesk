@@ -8,6 +8,7 @@ import { useAuth } from '../lib/auth'
 import { useHubEvent } from '../lib/hub'
 import { ago, dateTime } from '../lib/format'
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Segmented, Select, SeverityBadge, Skeleton, Switch, Table, Tabs } from '../components/ui'
+import { confirmDialog } from '../components/dialog'
 
 interface AlertRow { id: number; title: string; details?: string; severity: string; status: string; triggeredAt: string; handledBy?: string; handledAt?: string; deviceId: string; hostname: string; rule?: string }
 interface Rule { id: string; name: string; type: string; threshold: number; parameter?: string; severity: string; enabled: boolean; notifyEmail: boolean; notifyWebhook: boolean }
@@ -137,7 +138,7 @@ function Rules() {
             {can.super && (
               <div className="mt-3 flex gap-1 border-t border-line pt-3">
                 <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setEdit(r)}>Edit</Button>
-                <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={async () => { if (confirm(`Delete rule "${r.name}"?`)) { await api.del(`/api/alert-rules/${r.id}`); qc.invalidateQueries({ queryKey: ['rules'] }) } }}>Delete</Button>
+                <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={async () => { if (await confirmDialog({ title: `Delete rule "${r.name}"?`, message: "This can't be undone.", tone: 'danger' })) { await api.del(`/api/alert-rules/${r.id}`); qc.invalidateQueries({ queryKey: ['rules'] }) } }}>Delete</Button>
               </div>
             )}
           </Card>

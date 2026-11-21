@@ -16,6 +16,7 @@ import {
 } from '../components/ui'
 import { ActivityBars, Legend, Lines, RankBars, S, Sparkline, UsageBars } from '../components/charts'
 import { MessageModal, type OrgUnit } from './Devices'
+import { confirmDialog } from '../components/dialog'
 
 interface HardwareInfo {
   manufacturer?: string; model?: string; serial?: string; biosVersion?: string; cpu?: string; cpuCores: number; cpuThreads: number; ramMb: number
@@ -162,9 +163,9 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
       qc.invalidateQueries({ queryKey: ['commands', d.id] })
     } catch (e) { fail(e) }
   }
-  const state = async (action: string, confirmText?: string) => {
+  const state = async (action: string, ask?: { title: string; message: string; label: string }) => {
     setMenu(false)
-    if (confirmText && !confirm(confirmText)) return
+    if (ask && !(await confirmDialog({ ...ask, confirmLabel: ask.label, tone: 'danger' }))) return
     try {
       await api.post(`/api/devices/${d.id}/${action}`)
       toast.success(`Device ${action === 'retire' ? 'retired' : `${action}d`}`)
@@ -191,13 +192,18 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
             <MenuItem icon={<ListTree className="size-4" />} onClick={() => { setMove(true); setMenu(false) }}>Move to branch…</MenuItem>
             <MenuItem icon={<KeyRound className="size-4" />} onClick={uninstallCode}>Generate one-time uninstall code</MenuItem>
             {d.status === 'active'
-              ? <MenuItem icon={<Ban className="size-4" />} onClick={() => state('disable', 'Disable this device? It will stop being able to upload data.')}>Disable device</MenuItem>
+              ? <MenuItem icon={<Ban className="size-4" />} onClick={() => state('disable', { title: `Disable ${d.hostname}?`, message: 'The device will stop being able to upload data until it is re-enabled.', label: 'Disable device' })}>Disable device</MenuItem>
               : d.status === 'disabled' && <MenuItem icon={<CheckCircle2 className="size-4" />} onClick={() => state('enable')}>Re-enable device</MenuItem>}
-            <MenuItem icon={<XCircle className="size-4" />} onClick={() => state('retire', 'Retire this device? It will be hidden from lists and its certificate rejected.')}>Retire device</MenuItem>
+            <MenuItem icon={<XCircle className="size-4" />} onClick={() => state('retire', { title: `Retire ${d.hostname}?`, message: 'The device is hidden from lists and its certificate is rejected. Its history is kept.', label: 'Retire device' })}>Retire device</MenuItem>
             {can.super && (
-              <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => {
+              <MenuItem danger icon={<Trash2 className="size-4" />} onClick={async () => {
                 setMenu(false)
-                if (confirm(`Remotely uninstall the agent from ${d.hostname}? This is audited.${online ? '' : `\n\n${offlineNote}`}`)) cmd('uninstall')
+                if (await confirmDialog({
+                  title: `Uninstall the agent from ${d.hostname}?`,
+                  message: 'The agent, watchdog and tray app are removed from the device. This action is audited.',
+                  note: online ? undefined : offlineNote,
+                  confirmLabel: 'Uninstall agent', tone: 'danger',
+                })) cmd('uninstall')
               }}>
                 Remote uninstall
               </MenuItem>

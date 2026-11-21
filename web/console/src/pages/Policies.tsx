@@ -7,6 +7,7 @@ import { useAuth } from '../lib/auth'
 import { ago } from '../lib/format'
 import { Badge, Button, Callout, Card, cx, Empty, Field, Input, PageHeader, Segmented, Select, Skeleton, Switch } from '../components/ui'
 import type { DeviceRow, OrgUnit } from './Devices'
+import { confirmDialog, promptDialog } from '../components/dialog'
 
 interface Settings {
   collectors: {
@@ -29,7 +30,10 @@ export default function Policies() {
   const sel = data?.find((p) => p.id === selId) ?? data?.[0]
 
   const create = async (from?: PolicyRow) => {
-    const name = prompt('Policy name', from ? `${from.name} (copy)` : 'New policy')
+    const name = await promptDialog({
+      title: from ? `Duplicate "${from.name}"` : 'New policy', label: 'Policy name', maxLength: 100,
+      defaultValue: from ? `${from.name} (copy)` : 'New policy', confirmLabel: from ? 'Duplicate' : 'Create',
+    })
     if (!name) return
     const base = from?.settings ?? data?.find((p) => p.isDefault)?.settings
     const r = await api.post<{ id: string }>('/api/policies', { name, description: from?.description, settings: base })
@@ -96,7 +100,7 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
           <div className="flex gap-2 pt-5">
             <Button variant="ghost" icon={<Braces className="size-4" />} onClick={() => setJson((j) => !j)}>{json ? 'Form' : 'JSON'}</Button>
             {can.super && <Button variant="ghost" icon={<Copy className="size-4" />} onClick={onDuplicate}>Duplicate</Button>}
-            {can.super && !p.isDefault && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={async () => { if (confirm(`Delete policy "${p.name}"? Assigned devices fall back to their parent policy.`)) { await api.del(`/api/policies/${p.id}`); qc.invalidateQueries({ queryKey: ['policies'] }); onDeleted() } }} />}
+            {can.super && !p.isDefault && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={async () => { if (await confirmDialog({ title: `Delete policy "${p.name}"?`, message: 'Assigned devices fall back to their parent policy.', tone: 'danger' })) { await api.del(`/api/policies/${p.id}`); qc.invalidateQueries({ queryKey: ['policies'] }); onDeleted() } }} />}
             {can.super && <Button variant="primary" icon={<Save className="size-4" />} loading={busy} disabled={!dirty} onClick={save}>Save & push</Button>}
           </div>
         </div>

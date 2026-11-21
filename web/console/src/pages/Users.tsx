@@ -6,6 +6,7 @@ import { api, ApiError } from '../lib/api'
 import { ago } from '../lib/format'
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Skeleton, Switch, Table } from '../components/ui'
 import type { OrgUnit } from './Devices'
+import { confirmDialog } from '../components/dialog'
 
 interface UserRow { id: string; username: string; displayName: string; email?: string; role: string; orgUnitScope?: string; scope?: string; mfaEnabled: boolean; disabled: boolean; lastLoginAt?: string; locked: boolean }
 
@@ -55,7 +56,7 @@ export default function Users() {
                   <td className="text-xs text-muted">{ago(u.lastLoginAt)}</td>
                   <td>{u.disabled ? <Badge>Disabled</Badge> : u.locked ? <Badge tone="critical">Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
                   <td className="whitespace-nowrap text-right">
-                    {u.mfaEnabled && <Button size="sm" variant="ghost" icon={<Smartphone className="size-3.5" />} onClick={async () => { if (confirm(`Reset MFA for ${u.username}?`)) { await api.post(`/api/users/${u.id}/reset-mfa`); qc.invalidateQueries({ queryKey: ['users'] }) } }}>Reset MFA</Button>}
+                    {u.mfaEnabled && <Button size="sm" variant="ghost" icon={<Smartphone className="size-3.5" />} onClick={async () => { if (await confirmDialog({ title: `Reset two-step verification for ${u.username}?`, message: 'They sign in with their password only until they set it up again.', confirmLabel: 'Reset', tone: 'danger' })) { await api.post(`/api/users/${u.id}/reset-mfa`); qc.invalidateQueries({ queryKey: ['users'] }) } }}>Reset MFA</Button>}
                     <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setEdit(u)}>Edit</Button>
                   </td>
                 </tr>

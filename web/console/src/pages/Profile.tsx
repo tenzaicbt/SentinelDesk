@@ -6,6 +6,7 @@ import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, Callout, Card, Field, Input, Kv, PageHeader } from '../components/ui'
 import { Brand } from '../components/Layout'
+import { promptDialog } from '../components/dialog'
 
 function PasswordForm({ onDone }: { onDone?: () => void }) {
   const [current, setCurrent] = useState('')
@@ -67,7 +68,11 @@ export default function Profile() {
     finally { setBusy(false) }
   }
   const disable = async () => {
-    const c = prompt('Enter a current authenticator code to disable two-step verification')
+    const c = await promptDialog({
+      title: 'Disable two-step verification', message: 'Enter a current code from your authenticator app to confirm.',
+      label: 'Authenticator code', placeholder: '123456', inputMode: 'numeric', autoComplete: 'one-time-code', maxLength: 6,
+      confirmLabel: 'Disable', validate: (v) => (/^\d{6}$/.test(v) ? undefined : 'Enter the 6-digit code'),
+    })
     if (!c) return
     try { await api.post('/api/auth/mfa/disable', { code: c }); toast.success('Two-step verification disabled'); refresh() }
     catch (e) { toast.error(e instanceof ApiError ? e.message : 'Failed') }

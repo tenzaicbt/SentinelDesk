@@ -7,6 +7,7 @@ import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, Card, cx, Field, Input, Modal, PageHeader, Select, Skeleton } from '../components/ui'
 import type { OrgUnit } from './Devices'
+import { confirmDialog } from '../components/dialog'
 
 const icons: Record<string, typeof Building2> = { organization: Globe2, region: MapPin, branch: Building2, department: Users }
 
@@ -64,7 +65,7 @@ export default function Organization() {
               <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEdit({ parentId: u.id, type: u.type === 'organization' ? 'region' : u.type === 'region' ? 'branch' : 'department' })} aria-label="Add child" />
               <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setEdit(u)} aria-label="Edit" />
               {u.type !== 'organization' && <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} aria-label="Delete" onClick={async () => {
-                if (!confirm(`Delete ${u.name}?`)) return
+                if (!(await confirmDialog({ title: `Delete ${u.name}?`, message: 'The unit is removed from the organisation tree.', tone: 'danger' }))) return
                 try { await api.del(`/api/org/${u.id}`); qc.invalidateQueries({ queryKey: ['org'] }) } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Failed') }
               }} />}
             </span>

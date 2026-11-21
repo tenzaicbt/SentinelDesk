@@ -81,6 +81,8 @@ builder.Services.AddSingleton<DeviceCache>();
 builder.Services.AddSingleton<DeviceCacheInvalidator>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<Notifier>();
+builder.Services.AddSingleton<LiveStreamRegistry>();
+builder.Services.AddSingleton<LiveStreamControl>();
 builder.Services.AddScoped<HeartbeatService>();
 builder.Services.AddScoped<IngestService>();
 builder.Services.AddScoped<PolicyService>();
@@ -90,6 +92,7 @@ builder.Services.AddScoped<AccessScope>();
 builder.Services.AddHostedService<AlertEngine>();
 builder.Services.AddHostedService<RetentionService>();
 builder.Services.AddHostedService<DemoSimulator>();
+builder.Services.AddHostedService<LiveStreamRenewer>();
 
 // ── Authentication: JWT for admins (console), HMAC + mTLS for devices
 var jwt = new JwtService(keys, builder.Configuration);

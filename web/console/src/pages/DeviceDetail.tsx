@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Activity, AppWindow, ArrowDown, ArrowLeft, ArrowUp, Ban, CheckCircle2, ChevronRight, Globe, KeyRound, Laptop, ListTree,
-  MessageSquare, Monitor, MoreHorizontal, Network, Package, RefreshCw, Trash2, Wifi, XCircle,
+  Cpu, MemoryStick, MessageSquare, Monitor, MoreHorizontal, Network, Package, RefreshCw, Trash2, Wifi, XCircle,
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { useHubEvent, useHubGroup, type Presence } from '../lib/hub'
+import { useHubEvent, useHubGroup, type LiveSample, type Presence } from '../lib/hub'
 import { ago, appName, bps, bytes, dateTime, duration, num, shortDay } from '../lib/format'
 import {
   Badge, Button, Callout, Card, cx, Empty, Field, Input, Kv, Modal, OnlineDot, Segmented, Select, Skeleton,
@@ -42,15 +42,45 @@ export default function DeviceDetail() {
   const [tab, setTab] = useState<Tab>('live')
   const { data: d, isLoading, error } = useQuery({ queryKey: ['device', id], queryFn: () => api.get<Device>(`/api/devices/${id}`), refetchInterval: 60_000 })
   const [presence, setPresence] = useState<Presence | undefined>()
-  const [netHist, setNetHist] = useState<{ t: string; in: number; out: number }[]>([])
+  const [netHist, setNetHist] = useState<NetHist>([])
+  const [stream, setStream] = useState<StreamState | undefined>()
+  const lastSampleAt = useRef(0)
 
   useEffect(() => { setPresence(d?.presence) }, [d?.presence])
   useHubGroup('WatchDevice', 'UnwatchDevice', id)
+  const streaming = (now = Date.now()) => now - lastSampleAt.current < 3_000
   useHubEvent<Presence>('presence', (p) => {
     if (p.deviceId !== id) return
+    // while the sub-second stream runs, keep its fresher live fields and don't mix heartbeat points into the history
+    if (streaming()) {
+      setPresence((cur) => cur ? {
+        ...p, cpu: cur.cpu, ram: cur.ram, netInBps: cur.netInBps, netOutBps: cur.netOutBps, currentApp: cur.currentApp,
+        currentTitle: cur.currentTitle, idle: cur.idle, locked: cur.locked, lastSeen: cur.lastSeen,
+      } : p)
+      return
+    }
     setPresence(p)
-    setNetHist((h) => [...h, { t: new Date().toLocaleTimeString(), in: p.netInBps, out: p.netOutBps }].slice(-60))
+    setNetHist((h) => [...h, { t: new Date().toLocaleTimeString(), in: p.netInBps, out: p.netOutBps, cpu: p.cpu, ram: p.ram }].slice(-HIST))
   })
+  // agent -> server -> console relay while this page is open: one sample every ~500 ms, milliseconds after it was taken
+  useHubEvent<LiveSample>('liveSample', (s) => {
+    if (s.deviceId !== id) return
+    const now = Date.now()
+    if (!streaming(now)) setNetHist([]) // switching from heartbeat cadence: start a clean sub-second history
+    lastSampleAt.current = now
+    setStream({ intervalMs: s.intervalMs, lastAt: now })
+    setPresence((cur) => cur && {
+      ...cur, cpu: s.cpu, ram: s.ram, netInBps: s.netInBps, netOutBps: s.netOutBps, currentApp: s.currentApp,
+      currentTitle: s.currentTitle, idle: s.idle, locked: s.locked, lastSeen: new Date(s.serverTimeMs).toISOString(),
+    })
+    setNetHist((h) => [...h, { t: new Date(s.agentTimeMs).toLocaleTimeString(), in: s.netInBps, out: s.netOutBps, cpu: s.cpu, ram: s.ram }].slice(-HIST))
+  })
+  // flag the stream as stopped if samples dry up (agent disconnected, device asleep)
+  useEffect(() => {
+    if (!stream) return
+    const t = setTimeout(() => setStream((s) => (s && Date.now() - s.lastAt >= 3_000 ? undefined : s)), 3_100)
+    return () => clearTimeout(t)
+  }, [stream])
   useHubEvent<string>('inventoryUpdated', () => qc.invalidateQueries({ queryKey: ['device', id] }))
   useHubEvent<{ type: string; status: string; result?: string }>('commandStatus', (c) => {
     toast[c.status === 'succeeded' ? 'success' : 'error'](`${c.type}: ${c.status}`, { description: c.result })
@@ -104,8 +134,8 @@ export default function DeviceDetail() {
 
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
       <div className="mt-5">
-        {tab === 'live' && <LiveActivity d={d} p={online ? presence : undefined} netHist={netHist} />}
-        {tab === 'bandwidth' && <Bandwidth id={d.id} p={online ? presence : undefined} netHist={netHist} />}
+        {tab === 'live' && <LiveActivity d={d} p={online ? presence : undefined} netHist={netHist} stream={online ? stream : undefined} />}
+        {tab === 'bandwidth' && <Bandwidth id={d.id} p={online ? presence : undefined} netHist={netHist} stream={online ? stream : undefined} />}
         {tab === 'web' && <Websites id={d.id} />}
         {tab === 'network' && <NetworkDetails d={d} p={online ? presence : undefined} />}
       </div>
@@ -217,17 +247,20 @@ function MoveModal({ open, onClose, d }: { open: boolean; onClose: () => void; d
 }
 
 // ───────────────────────── Live activity ─────────────────────────
-function LiveActivity({ d, p, netHist }: { d: Device; p?: Presence; netHist: { t: string; in: number; out: number }[] }) {
+function LiveActivity({ d, p, netHist, stream }: { d: Device; p?: Presence; netHist: NetHist; stream?: StreamState }) {
   const todayIn = Math.max(d.today.bytesIn, p?.todayIn ?? 0)
   const todayOut = Math.max(d.today.bytesOut, p?.todayOut ?? 0)
   return (
     <div className="space-y-4">
-      <Card title="Right now" subtitle={p ? `Updated ${ago(p.lastSeen)} · ${d.liveChannel ? 'live channel connected' : 'heartbeat polling'}` : `Device offline · last seen ${ago(d.lastSeenAt)}`}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Card title="Right now" actions={<StreamBadge stream={stream} />}
+        subtitle={p ? (stream ? `Streaming live · a new sample every ${stream.intervalMs} ms` : `Updated ${ago(p.lastSeen)} · ${d.liveChannel ? 'live channel connected' : 'heartbeat polling'}`) : `Device offline · last seen ${ago(d.lastSeenAt)}`}>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MiniStat icon={<AppWindow className="size-3.5" />} label="Foreground app" value={p?.currentApp ? appName(p.currentApp) : '—'}
             sub={p ? (p.locked ? 'Screen locked' : p.idle ? 'Idle' : `In use by ${p.user ?? d.loggedInUser ?? 'unknown'}`) : 'Offline'} />
           <MiniStat icon={<ArrowDown className="size-3.5 text-s1" />} label="Download now" value={bps(p?.netInBps)} spark={netHist.map((h) => h.in)} color={S.down} />
           <MiniStat icon={<ArrowUp className="size-3.5 text-s2" />} label="Upload now" value={bps(p?.netOutBps)} spark={netHist.map((h) => h.out)} color={S.up} />
+          <MiniStat icon={<Cpu className="size-3.5" />} label="CPU" value={p ? `${p.cpu.toFixed(1)}%` : '—'} spark={netHist.map((h) => h.cpu ?? 0)} sparkMax={100} color="var(--brand)" />
+          <MiniStat icon={<MemoryStick className="size-3.5" />} label="Memory" value={p ? `${p.ram.toFixed(0)}%` : '—'} spark={netHist.map((h) => h.ram ?? 0)} sparkMax={100} color="var(--muted)" />
           <MiniStat icon={<Wifi className="size-3.5" />} label="Data today" value={bytes(todayIn + todayOut)} sub={`↓ ${bytes(todayIn)} · ↑ ${bytes(todayOut)}`} />
         </div>
       </Card>
@@ -267,12 +300,12 @@ function NetworkDetails({ d, p }: { d: Device; p?: Presence }) {
   )
 }
 
-function MiniStat({ icon, label, value, sub, spark, color }: { icon: React.ReactNode; label: string; value: string; sub?: string; spark?: number[]; color?: string }) {
+function MiniStat({ icon, label, value, sub, spark, sparkMax, color }: { icon: React.ReactNode; label: string; value: string; sub?: string; spark?: number[]; sparkMax?: number; color?: string }) {
   return (
     <div className="rounded-lg border border-line bg-panel-2/40 p-3">
       <div className="flex items-center gap-1.5 text-xs text-muted">{icon}{label}</div>
       <div className="mt-1 text-lg font-semibold tabular">{value}</div>
-      {spark ? <Sparkline values={spark} color={color} height={22} /> : <div className="text-[11px] text-muted">{sub}</div>}
+      {spark ? <Sparkline values={spark} max={sparkMax} color={color} height={22} /> : <div className="text-[11px] text-muted">{sub}</div>}
     </div>
   )
 }
@@ -355,16 +388,18 @@ interface BandwidthData {
   processes: { process: string; bytesIn: number; bytesOut: number }[]
   rangeDays: number
 }
-function Bandwidth({ id, p, netHist }: { id: string; p?: Presence; netHist: { t: string; in: number; out: number }[] }) {
+function Bandwidth({ id, p, netHist, stream }: { id: string; p?: Presence; netHist: NetHist; stream?: StreamState }) {
   const [days, setDays] = useState(30)
   const { data } = useQuery({ queryKey: ['bw', id, days], queryFn: () => api.get<BandwidthData>(`/api/devices/${id}/bandwidth?days=${days}`) })
   const legend = <Legend items={[{ label: 'Download', color: S.down }, { label: 'Upload', color: S.up }]} />
   const total = data?.daily.reduce((s, x) => s + x.bytesIn + x.bytesOut, 0) ?? 0
   return (
     <div className="grid gap-4 xl:grid-cols-3">
-      <Card className="xl:col-span-2" title="Live throughput" subtitle={p ? 'Streaming from heartbeats (every few seconds)' : 'Device offline'} actions={legend}>
+      <Card className="xl:col-span-2" title="Live throughput"
+        subtitle={p ? (stream ? `Streaming live · every ${stream.intervalMs} ms` : 'From heartbeats (every few seconds) until the live stream connects') : 'Device offline'}
+        actions={<div className="flex items-center gap-3"><StreamBadge stream={stream} />{legend}</div>}>
         {netHist.length > 1 ? (
-          <Lines data={netHist.map((h) => ({ ...h }))} xKey="t" yFormat={(v) => bps(v)} height={200}
+          <Lines data={netHist.map((h) => ({ ...h }))} xKey="t" yFormat={(v) => bps(v)} height={200} animate={!stream}
             series={[{ key: 'in', name: 'Download', color: S.down }, { key: 'out', name: 'Upload', color: S.up }]} />
         ) : <Empty icon={<Activity className="size-5" />} title={p ? 'Collecting live samples…' : 'No live data'}>{p ? `Current: ↓ ${bps(p.netInBps)} · ↑ ${bps(p.netOutBps)}` : 'Live throughput appears when the device is online.'}</Empty>}
       </Card>
@@ -500,5 +535,20 @@ function Websites({ id }: { id: string }) {
         )}
       </Card>
     </div>
+  )
+}
+
+// ───────────────────────── Live stream ─────────────────────────
+type NetHist = { t: string; in: number; out: number; cpu?: number; ram?: number }[]
+interface StreamState { intervalMs: number; lastAt: number }
+/** ~60 s of history at the 500 ms stream rate. */
+const HIST = 120
+
+function StreamBadge({ stream }: { stream?: StreamState }) {
+  if (!stream) return null
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-good/12 px-2 py-0.5 text-[11px] font-medium text-good-ink">
+      <span className="pulse-dot size-1.5 rounded-full bg-good" />Live · {stream.intervalMs} ms
+    </span>
   )
 }

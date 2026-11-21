@@ -95,7 +95,7 @@ public sealed class HeartbeatWorker(ServerClient server, AgentConfig config, Age
 
 /// <summary>Persistent SignalR channel for instant server → agent commands.</summary>
 public sealed class CommandChannel(ServerClient server, AgentConfig config, CommandExecutor executor,
-    HeartbeatWorker heartbeat, ILogger<CommandChannel> log) : BackgroundService
+    HeartbeatWorker heartbeat, LiveStreamer streamer, ILogger<CommandChannel> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -123,6 +123,12 @@ public sealed class CommandChannel(ServerClient server, AgentConfig config, Comm
             if (result is not null) try { await conn.InvokeAsync("Ack", result, ct); } catch { }
         });
         conn.On("policyChanged", () => heartbeat.Kick());
+        // a console user is watching this device: push sub-second samples until told to stop (or the lease lapses)
+        conn.On<int, int>("startStream", (intervalMs, leaseSec) =>
+            streamer.Start(intervalMs, leaseSec, s => conn.SendAsync("Stream", s, ct)));
+        conn.On("stopStream", streamer.Stop);
+        conn.Reconnecting += _ => { streamer.Stop(); return Task.CompletedTask; };
+        conn.Closed += _ => { streamer.Stop(); return Task.CompletedTask; };
         conn.Reconnected += _ => { log.LogInformation("Live channel reconnected"); heartbeat.Kick(); return Task.CompletedTask; };
 
         var delay = TimeSpan.FromSeconds(5);
@@ -142,6 +148,7 @@ public sealed class CommandChannel(ServerClient server, AgentConfig config, Comm
             }
         }
         try { await Task.Delay(Timeout.Infinite, ct); } catch (OperationCanceledException) { }
+        streamer.Stop();
         await conn.DisposeAsync();
     }
 

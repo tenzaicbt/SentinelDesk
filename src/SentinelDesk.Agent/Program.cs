@@ -98,6 +98,7 @@ builder.Services.AddSingleton<TelemetryAggregator>();
 builder.Services.AddSingleton<LocalQueue>();
 builder.Services.AddSingleton<CommandExecutor>();
 builder.Services.AddSingleton<UpdateManager>();
+builder.Services.AddSingleton<LiveStreamer>();
 
 void Hosted<T>() where T : class, IHostedService
 {

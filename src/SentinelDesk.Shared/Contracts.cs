@@ -38,6 +38,28 @@ public sealed record EnrollResponse(
     string ServerSigningKeyPem,
     string Status);
 
+// ───────────────────────── Live stream ─────────────────────────
+
+/// <summary>
+/// High-rate sample pushed over the agent's SignalR channel while a console user is watching the device
+/// (server → agent "startStream"/"stopStream"). Relayed straight to viewers; never stored.
+/// </summary>
+public sealed class LiveSample
+{
+    public long Seq { get; set; }
+    /// <summary>Agent wall clock, Unix ms.</summary>
+    public long AgentTimeMs { get; set; }
+    public int IntervalMs { get; set; }
+    public double Cpu { get; set; }
+    public double Ram { get; set; }
+    public long NetInBps { get; set; }
+    public long NetOutBps { get; set; }
+    public string? CurrentApp { get; set; }
+    public string? CurrentTitle { get; set; }
+    public bool UserIdle { get; set; }
+    public bool Locked { get; set; }
+}
+
 // ───────────────────────── Heartbeat ─────────────────────────
 
 public sealed class HeartbeatRequest

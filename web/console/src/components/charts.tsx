@@ -75,10 +75,10 @@ interface Series { key: string; name: string; color: string }
  * cross stacked bands the way natural splines do), vertical gradient fills, horizontal grid only,
  * no y-axis (values live in the crosshair tooltip), 2px strokes and a surface-ringed active dot.
  */
-function AreaTrend({ data, xKey, series, height, stacked, yMax, yFormat, xFormat, tipFormat, total }: {
+function AreaTrend({ data, xKey, series, height, stacked, yMax, yFormat, xFormat, tipFormat, total, animate = true }: {
   data: Record<string, unknown>[]; xKey: string; series: Series[]; height: number; stacked?: boolean
   yMax?: number; yFormat?: (v: number) => string; xFormat?: (v: string) => string
-  tipFormat: (v: number) => ReactNode; total?: boolean
+  tipFormat: (v: number) => ReactNode; total?: boolean; animate?: boolean
 }) {
   const uid = useId().replace(/:/g, '')
   const few = data.length < 3
@@ -107,7 +107,7 @@ function AreaTrend({ data, xKey, series, height, stacked, yMax, yFormat, xFormat
             stroke={s.color} strokeWidth={2} fill={`url(#${uid}-${s.key})`} fillOpacity={1}
             dot={few ? { r: 3, fill: s.color, stroke: 'var(--panel)', strokeWidth: 2 } : false}
             activeDot={{ r: 4.5, fill: s.color, stroke: 'var(--panel)', strokeWidth: 2 }}
-            isAnimationActive animationDuration={600} />
+            isAnimationActive={animate} animationDuration={600} />
         ))}
       </AreaChart>
     </ResponsiveContainer>
@@ -126,12 +126,14 @@ export function UsageBars({ data, xKey, xFormat, height = 240 }: {
 }
 
 /** One or a few series on the same unit (e.g. CPU %, live throughput) - overlaid, not stacked. */
-export function Lines({ data, xKey, series, height = 220, yMax, yFormat, xFormat }: {
+export function Lines({ data, xKey, series, height = 220, yMax, yFormat, xFormat, animate }: {
   data: Record<string, unknown>[]; xKey: string; series: Series[]
   height?: number; yMax?: number; yFormat?: (v: number) => string; xFormat?: (v: string) => string
+  /** false for streaming data: re-animating every sub-second update makes the line jitter */
+  animate?: boolean
 }) {
   return (
-    <AreaTrend data={data} xKey={xKey} series={series} height={height} yMax={yMax} yFormat={yFormat} xFormat={xFormat}
+    <AreaTrend data={data} xKey={xKey} series={series} height={height} yMax={yMax} yFormat={yFormat} xFormat={xFormat} animate={animate}
       tipFormat={(v) => (yFormat ? yFormat(v) : String(v))} />
   )
 }
@@ -169,10 +171,10 @@ export function ActivityBars({ data, height = 200 }: { data: { hour: number; act
 }
 
 /** Smooth mini trend with a soft gradient (live tiles). */
-export function Sparkline({ values, color = 'var(--series-1)', height = 28 }: { values: number[]; color?: string; height?: number }) {
+export function Sparkline({ values, color = 'var(--series-1)', height = 28, max: fixedMax }: { values: number[]; color?: string; height?: number; max?: number }) {
   const uid = useId().replace(/:/g, '')
   if (values.length < 2) return <div style={{ height }} />
-  const max = Math.max(1, ...values)
+  const max = fixedMax ?? Math.max(1, ...values)
   const w = 100
   const pts = values.map((v, i) => [(i / (values.length - 1)) * w, height - 2 - (v / max) * (height - 4)] as const)
   // Catmull-Rom -> cubic Bezier for a natural curve

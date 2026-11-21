@@ -67,6 +67,23 @@ export function useHubGroup(join: string, leave: string, arg?: string) {
   }, [connection, connected, join, leave, arg])
 }
 
+/** Sub-second sample relayed from the agent while this device is being watched (never stored). */
+export interface LiveSample {
+  deviceId: string
+  seq: number
+  agentTimeMs: number
+  serverTimeMs: number
+  intervalMs: number
+  cpu: number
+  ram: number
+  netInBps: number
+  netOutBps: number
+  currentApp?: string
+  currentTitle?: string
+  idle: boolean
+  locked: boolean
+}
+
 export interface Presence {
   deviceId: string
   hostname: string

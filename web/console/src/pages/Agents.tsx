@@ -144,7 +144,7 @@ function OfficeInstaller({ org, onCreated }: { org?: OrgUnit[]; onCreated: () =>
 
   return (
     <Card title={<span className="inline-flex items-center gap-1.5"><Download className="size-3.5" />Office installer — one file to send to each branch</span>}
-      subtitle="Downloads SentinelDesk-Setup.exe with the server address, a new enrollment token and your uninstall key built in. Staff double-click it (admin rights) or IT pushes it silently with /quiet.">
+      subtitle="Downloads SentinelDesk-Setup.exe with the server address, a new enrollment token and your uninstall key built in. Staff double-click it (admin rights) or admins push it silently with /quiet.">
       {!info ? <Skeleton className="h-40" /> : !info.available ? (
         <Callout tone="warning">The setup file has not been built yet. On the server run <code className="font-mono">.uild.ps1</code> - it creates <code className="font-mono">publish\SentinelDesk-Setup.exe</code>, then reload this page.</Callout>
       ) : (

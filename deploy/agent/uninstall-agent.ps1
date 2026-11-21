@@ -78,7 +78,7 @@ if (-not $UninstallKey) {
 }
 & $AgentExe verify-uninstall-key $UninstallKey | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host 'Invalid Uninstall Key. This attempt has been reported to IT.' -ForegroundColor Red
+    Write-Host 'Invalid Uninstall Key. This attempt has been logged and reported.' -ForegroundColor Red
     exit 1
 }
 

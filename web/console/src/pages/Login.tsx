@@ -70,7 +70,7 @@ export function Login() {
           <div className="mb-8 lg:hidden"><Brand /></div>
           <h2 className="text-2xl font-semibold tracking-tight">{mfaToken ? 'Two-step verification' : 'Sign in to the console'}</h2>
           <p className="mt-1.5 text-sm text-muted">
-            {mfaToken ? 'Enter the 6-digit code from your authenticator app.' : 'Authorised IT personnel only. All access is audited.'}
+            {mfaToken ? 'Enter the 6-digit code from your authenticator app.' : 'Authorised personnel only. All access is audited.'}
           </p>
           <div className="mt-7 space-y-4">
             {error && <Callout tone="critical">{error}</Callout>}

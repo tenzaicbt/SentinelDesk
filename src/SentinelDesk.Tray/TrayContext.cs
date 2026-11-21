@@ -29,9 +29,9 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add("Status", null, (_, _) => ShowStatus());
         menu.Items.Add("Monitoring notice", null, (_, _) => ShowNotice());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Contact IT", null, (_, _) => MessageBox.Show(Settings.ContactIt, "Contact IT", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        menu.Items.Add("Contact support", null, (_, _) => MessageBox.Show(Settings.ContactIt, "Contact support", MessageBoxButtons.OK, MessageBoxIcon.Information));
         menu.Items.Add("About SentinelDesk", null, (_, _) => MessageBox.Show(
-            $"SentinelDesk Endpoint Agent {AgentVersion ?? "1.0.0"}\nDevice ID: {DeviceId ?? "not enrolled"}\n\nThis agent is managed by your IT department and cannot be closed by users.",
+            $"SentinelDesk Endpoint Agent {AgentVersion ?? "1.0.0"}\nDevice ID: {DeviceId ?? "not enrolled"}\n\nThis agent is managed by your organisation and cannot be closed by users.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = true, Text = "SentinelDesk — starting…", Icon = Icons.For("starting") };
@@ -81,7 +81,7 @@ public sealed class TrayContext : ApplicationContext
                 _status?.Refresh(this);
                 break;
             case "notify":
-                _icon.ShowBalloonTip(15000, m.Title ?? "IT Department", m.Body ?? "", ToolTipIcon.Info);
+                _icon.ShowBalloonTip(15000, m.Title ?? "SentinelDesk", m.Body ?? "", ToolTipIcon.Info);
                 break;
         }
     }

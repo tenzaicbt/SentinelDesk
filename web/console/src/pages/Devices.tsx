@@ -188,7 +188,7 @@ export default function Devices() {
 }
 
 export function MessageModal({ open, onClose, onSend, count }: { open: boolean; onClose: () => void; onSend: (title: string, body: string) => Promise<void>; count: number }) {
-  const [title, setTitle] = useState('IT Department')
+  const [title, setTitle] = useState('SentinelDesk')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   return (

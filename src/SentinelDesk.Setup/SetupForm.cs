@@ -67,7 +67,7 @@ namespace SentinelDesk.Setup
             _title.Text = installed ? "SentinelDesk is already installed" : "Install SentinelDesk Agent";
             _subtitle.Text = _config.IsPreconfigured
                 ? $"Pre-configured for {(_config.BranchName ?? _config.OrgName ?? "your organization")}"
-                : "Company device monitoring · managed by IT";
+                : "Company device monitoring";
 
             var y = 0;
             void Add(Control c, int h = 0) { c.Location = new Point(0, y); c.Width = _body.ClientSize.Width - _body.Padding.Horizontal; _body.Controls.Add(c); y += (h > 0 ? h : c.Height) + 6; }
@@ -79,7 +79,7 @@ namespace SentinelDesk.Setup
 
             if (installed)
             {
-                var l = Text("This computer is already protected and reporting to IT. No action is needed.\n\nTo reinstall, uninstall first with the Uninstall Key or a one-time code from the console.");
+                var l = Text("This computer is already protected and connected. No action is needed.\n\nTo reinstall, uninstall first with the Uninstall Key or a one-time code from the console.");
                 l.Height = 100;
                 Add(l);
                 _install.Text = "Close";
@@ -98,7 +98,7 @@ namespace SentinelDesk.Setup
             }
 
             var intro = Text("This installs the SentinelDesk monitoring agent on this company computer. It runs as a protected Windows service " +
-                             "with a tray icon, and securely reports device health, inventory, application and network usage to IT.");
+                             "with a tray icon, and securely reports device health, inventory, application and network usage to the management server.");
             intro.Height = 58;
             Add(intro);
 
@@ -164,7 +164,7 @@ namespace SentinelDesk.Setup
             ExitCode = code;
             _progress.Visible = false;
             _title.Text = code == 0 ? "SentinelDesk is installed" : "Installation failed";
-            _subtitle.Text = code == 0 ? "This computer is now protected and reporting to IT." : $"Details: {Installer.LogFile}";
+            _subtitle.Text = code == 0 ? "This computer is now protected and connected." : $"Details: {Installer.LogFile}";
             _header.Invalidate();
             _install.Text = "Finish";
             _install.Enabled = true;

@@ -165,7 +165,7 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
 
           <Card className="xl:col-span-2" title={<span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5" />Tray transparency notice</span>} subtitle="Shown to users from the tray icon">
             <div className="grid gap-3 md:grid-cols-[1fr_2fr]">
-              <Field label="Contact IT"><Input disabled={ro} value={s.tray.contactIt} onChange={(e) => setS({ ...s, tray: { ...s.tray, contactIt: e.target.value } })} /></Field>
+              <Field label="Support contact"><Input disabled={ro} value={s.tray.contactIt} onChange={(e) => setS({ ...s, tray: { ...s.tray, contactIt: e.target.value } })} /></Field>
               <Field label="Monitoring notice">
                 <textarea disabled={ro} rows={3} value={s.tray.monitoringNotice} onChange={(e) => setS({ ...s, tray: { ...s.tray, monitoringNotice: e.target.value } })}
                   className="w-full rounded-lg border border-line-strong bg-panel px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-3 focus:ring-brand-soft" />

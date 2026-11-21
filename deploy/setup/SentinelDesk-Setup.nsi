@@ -107,7 +107,7 @@ Page custom SettingsPage SettingsLeave
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_PAGE_CUSTOMFUNCTION_PRE FinishPre
 !define MUI_FINISHPAGE_TITLE "SentinelDesk is installed"
-!define MUI_FINISHPAGE_TEXT  "This computer is now protected and reporting to IT.$\r$\n$\r$\nThe tray icon appears within about 30 seconds.$\r$\n$\r$\n$\r$\nSentinelDesk · © 2026 Yohan Koshala. All rights reserved."
+!define MUI_FINISHPAGE_TEXT  "This computer is now protected and connected to the management server.$\r$\n$\r$\nThe tray icon appears within about 30 seconds.$\r$\n$\r$\n$\r$\nSentinelDesk · © 2026 Yohan Koshala. All rights reserved."
 !define MUI_FINISHPAGE_LINK          "www.lordefx.com"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://www.lordefx.com"
 !insertmacro MUI_PAGE_FINISH
@@ -254,7 +254,7 @@ Function .onInit
 
   ReadRegStr $R2 HKLM "${SVCKEY}" "ImagePath"
   ${If} $R2 != ""
-    MessageBox MB_ICONINFORMATION|MB_OK "SentinelDesk is already installed on this computer and reporting to IT. No action is needed.$\r$\n$\r$\nTo reinstall, uninstall it first with the Uninstall Key or a one-time code from the console." /SD IDOK
+    MessageBox MB_ICONINFORMATION|MB_OK "SentinelDesk is already installed on this computer and connected. No action is needed.$\r$\n$\r$\nTo reinstall, uninstall it first with the Uninstall Key or a one-time code from the console." /SD IDOK
     SetErrorLevel 0
     Quit
   ${EndIf}
@@ -272,7 +272,7 @@ Function .onInit
     Quit
   ${EndIf}
 
-  StrCpy $WelcomeText "This installs the SentinelDesk monitoring agent on this company computer. It runs as a protected Windows service with a tray icon, and securely reports device health, inventory, application and network usage to IT."
+  StrCpy $WelcomeText "This installs the SentinelDesk monitoring agent on this company computer. It runs as a protected Windows service with a tray icon, and securely reports device health, inventory, application and network usage to the management server."
   ${If} $Preconfigured == 1
     StrCpy $WelcomeText "$WelcomeText$\r$\n$\r$\nManagement server:  $Server"
     ${If} $Branch != ""
@@ -430,7 +430,7 @@ Function un.KeyPage
   !insertmacro MUI_HEADER_TEXT "Uninstall SentinelDesk Agent" "Removing the agent requires the organization's Uninstall Key."
   nsDialogs::Create 1018
   Pop $0
-  ${NSD_CreateLabel} 0 0 100% 30u "Enter the SentinelDesk Uninstall Key, or a one-time code generated for this device in the web console.$\r$\n$\r$\nFailed attempts are reported to IT."
+  ${NSD_CreateLabel} 0 0 100% 30u "Enter the SentinelDesk Uninstall Key, or a one-time code generated for this device in the web console.$\r$\n$\r$\nFailed attempts are logged and reported."
   Pop $0
   ${NSD_CreateLabel} 0 40u 100% 10u "Uninstall Key / one-time code"
   Pop $0
@@ -476,7 +476,7 @@ Section "Uninstall"
     ${If} $0 == "error"
       StrCpy $0 1
     ${EndIf}
-    MessageBox MB_ICONSTOP|MB_OK "SentinelDesk was not removed.$\r$\n$\r$\nCheck the Uninstall Key - invalid attempts are reported to IT." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "SentinelDesk was not removed.$\r$\n$\r$\nCheck the Uninstall Key - invalid attempts are logged and reported." /SD IDOK
     SetErrorLevel $0
     Abort
   ${EndIf}

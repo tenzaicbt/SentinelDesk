@@ -283,9 +283,9 @@ public sealed class PrivacySettings
 
 public sealed class TraySettings
 {
-    public string ContactIt { get; set; } = "IT Service Desk · ext. 1234";
+    public string ContactIt { get; set; } = "Service desk · ext. 1234";
     public string MonitoringNotice { get; set; } =
-        "This company-owned computer is monitored in line with the IT Acceptable Use Policy. " +
+        "This company-owned computer is monitored in line with the Acceptable Use Policy. " +
         "Collected: device health, installed software, application usage time, network data usage and " +
         "website domains. NOT collected: keystrokes, screenshots, passwords, file contents or personal messages.";
 }

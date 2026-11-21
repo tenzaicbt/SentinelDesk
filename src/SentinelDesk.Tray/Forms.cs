@@ -93,7 +93,7 @@ public sealed class StatusForm : Form
             g.DrawLine(pen, 20, y - 5, ClientSize.Width - 20, y - 5);
         }
         using var small = new Font("Segoe UI", 8.5f);
-        TextRenderer.DrawText(g, "Managed by your IT department · see “Monitoring notice” for what is collected", small,
+        TextRenderer.DrawText(g, "Managed by your organisation · see “Monitoring notice” for what is collected", small,
             new Rectangle(20, ClientSize.Height - 44, ClientSize.Width - 40, 20), muted, TextFormatFlags.EndEllipsis);
         TextRenderer.DrawText(g, Brand.Credit, small, new Rectangle(20, ClientSize.Height - 24, ClientSize.Width - 40, 20), muted, TextFormatFlags.EndEllipsis);
     }
@@ -139,7 +139,7 @@ public sealed class NoticeForm : Form
         var heading = new Label { Text = "This device is monitored", Font = new Font("Segoe UI Semibold", 14f), AutoSize = true, Location = new Point(24, 20) };
         var body = new Label
         {
-            Text = settings.MonitoringNotice + "\n\nData is encrypted in transit and at rest, retained for a limited period and accessible only to authorised IT staff. " +
+            Text = settings.MonitoringNotice + "\n\nData is encrypted in transit and at rest, retained for a limited period and accessible only to authorised staff. " +
                    "Questions: " + settings.ContactIt,
             Location = new Point(24, 64), Size = new Size(472, 230)
         };

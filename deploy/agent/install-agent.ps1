@@ -122,7 +122,7 @@ try {
     $createdServices = $true
     Invoke-Native 'Creating agent service' { sc.exe create SentinelDeskAgent binPath= "`"$AgentExe`"" start= auto obj= LocalSystem DisplayName= 'SentinelDesk Agent' } | Out-Null
     Invoke-Native 'Creating guard service' { sc.exe create SentinelDeskGuard binPath= "`"$GuardExe`"" start= auto obj= LocalSystem DisplayName= 'SentinelDesk Guard' } | Out-Null
-    sc.exe description SentinelDeskAgent 'Collects device health, inventory and usage telemetry for IT management. Managed by IT.' | Out-Null
+    sc.exe description SentinelDeskAgent 'Collects device health, inventory and usage telemetry for endpoint management.' | Out-Null
     sc.exe description SentinelDeskGuard 'Watchdog and updater for the SentinelDesk agent.' | Out-Null
     foreach ($svc in $Services) {
         sc.exe failure $svc reset= 0 actions= restart/5000/restart/5000/restart/10000 | Out-Null

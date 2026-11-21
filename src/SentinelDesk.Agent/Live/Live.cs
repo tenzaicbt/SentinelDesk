@@ -205,7 +205,7 @@ public sealed class CommandExecutor(AgentConfig config, ServerClient server, ISe
                 return "flushed";
             case CommandTypes.ShowMessage:
                 var m = Json.Deserialize<Dictionary<string, string>>(cmd.Payload ?? "{}") ?? [];
-                await services.GetRequiredService<TrayManager>().NotifyAsync(m.GetValueOrDefault("title") ?? "IT Department", m.GetValueOrDefault("body") ?? "");
+                await services.GetRequiredService<TrayManager>().NotifyAsync(m.GetValueOrDefault("title") ?? "SentinelDesk", m.GetValueOrDefault("body") ?? "");
                 return "message delivered to tray";
             case CommandTypes.SetUninstallCode:
                 var u = Json.Deserialize<Dictionary<string, object>>(cmd.Payload ?? "{}") ?? [];

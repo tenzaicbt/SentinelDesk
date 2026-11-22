@@ -123,7 +123,7 @@ public sealed class StatusForm : Form
 /// <summary>Transparency notice (PDPA): what is and isn't collected.</summary>
 public sealed class NoticeForm : Form
 {
-    public NoticeForm(TraySettings settings)
+    public NoticeForm(TraySettings settings, bool locationEnabled = false)
     {
         var dark = StatusForm.IsDarkMode();
         Text = "Monitoring notice";
@@ -139,7 +139,9 @@ public sealed class NoticeForm : Form
         var heading = new Label { Text = "This device is monitored", Font = new Font("Segoe UI Semibold", 14f), AutoSize = true, Location = new Point(24, 20) };
         var body = new Label
         {
-            Text = settings.MonitoringNotice + "\n\nData is encrypted in transit and at rest, retained for a limited period and accessible only to authorised staff. " +
+            Text = settings.MonitoringNotice +
+                   (locationEnabled ? "\n\nLocation: this device's location (from Windows Location) is also collected." : "") +
+                   "\n\nData is encrypted in transit and at rest, retained for a limited period and accessible only to authorised staff. " +
                    "Questions: " + settings.ContactIt,
             Location = new Point(24, 64), Size = new Size(472, 230)
         };

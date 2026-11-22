@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Activity, AppWindow, ArrowDown, ArrowLeft, ArrowUp, Ban, CheckCircle2, ChevronRight, Globe, KeyRound, Laptop, ListTree,
+  Activity, AppWindow, ArrowDown, ArrowLeft, ArrowUp, Ban, CheckCircle2, ChevronRight, Globe, KeyRound, Laptop, ListTree, MapPin,
   ClipboardList, Cpu, HardDrive, MemoryStick, MessageSquare, Monitor, MoreHorizontal, Network, Package, RefreshCw, Trash2, Wifi, XCircle,
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
@@ -17,6 +17,8 @@ import {
 import { ActivityBars, Legend, Lines, RankBars, S, Sparkline, UsageBars } from '../components/charts'
 import { MessageModal, type OrgUnit } from './Devices'
 import { confirmDialog } from '../components/dialog'
+import { DeviceLocation, type LocationInfo } from '../components/DeviceLocation'
+import { useTheme } from '../components/Layout'
 
 interface HardwareInfo {
   manufacturer?: string; model?: string; serial?: string; biosVersion?: string; cpu?: string; cpuCores: number; cpuThreads: number; ramMb: number
@@ -31,16 +33,18 @@ interface Device {
   orgUnitId?: string; orgPath: string[]; tags?: string; certThumbprint?: string; certExpiresAt?: string; isSimulated: boolean
   policy: { id: string; name: string; effectiveVersion: number; applied: boolean }
   online: boolean; presence?: Presence; today: { bytesIn: number; bytesOut: number; activeSec: number; idleSec: number }
+  location?: LocationInfo | null
   hardware?: HardwareInfo; hardwareCollectedAt?: string; security?: SecurityPosture; securityCollectedAt?: string; liveChannel: boolean
 }
 
-type Tab = 'live' | 'details' | 'bandwidth' | 'web' | 'network'
+type Tab = 'live' | 'details' | 'bandwidth' | 'web' | 'network' | 'location'
 
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>()
   const { can } = useAuth()
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('live')
+  const { dark } = useTheme()
   const { data: d, isLoading, error } = useQuery({ queryKey: ['device', id], queryFn: () => api.get<Device>(`/api/devices/${id}`), refetchInterval: 60_000 })
   const [presence, setPresence] = useState<Presence | undefined>()
   const [netHist, setNetHist] = useState<NetHist>([])
@@ -100,6 +104,7 @@ export default function DeviceDetail() {
     { id: 'bandwidth', label: 'Internet usage', icon: <ArrowDown className="size-3.5" /> },
     ...(can.web ? [{ id: 'web' as Tab, label: 'Browsing', icon: <Globe className="size-3.5" /> }] : []),
     { id: 'network', label: 'Network', icon: <Network className="size-3.5" /> },
+    ...(can.web ? [{ id: 'location' as Tab, label: 'Location', icon: <MapPin className="size-3.5" /> }] : []),
   ]
 
   return (
@@ -141,6 +146,7 @@ export default function DeviceDetail() {
         {tab === 'bandwidth' && <Bandwidth id={d.id} p={online ? presence : undefined} netHist={netHist} stream={online ? stream : undefined} />}
         {tab === 'web' && <Websites id={d.id} />}
         {tab === 'network' && <NetworkDetails d={d} p={online ? presence : undefined} />}
+        {tab === 'location' && <DeviceLocation id={d.id} loc={d.location} dark={dark} />}
       </div>
     </>
   )

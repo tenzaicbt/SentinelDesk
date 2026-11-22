@@ -237,6 +237,22 @@ public sealed class DemoSimulator(IServiceScopeFactory scopes, IConfiguration co
                 Laptop = laptop, TodayDay = IngestService.Today()
             });
         }
+        // demo positions: scattered within ~3 km of the device's branch (laptops a little further)
+        var unitPos = await db.OrgUnits.AsNoTracking().Where(o => o.Lat != null).ToDictionaryAsync(o => o.Id, o => (o.Lat!.Value, o.Lng!.Value), ct);
+        var placed = 0;
+        foreach (var d in existing.Where(d => d.LocLat is null && d.OrgUnitId is { } u && unitPos.ContainsKey(u)))
+        {
+            var (lat, lng) = unitPos[d.OrgUnitId!.Value];
+            var spread = d.Tags?.Contains("laptop") == true ? 0.05 : 0.025;
+            d.LocLat = lat + (_rng.NextDouble() - 0.5) * spread;
+            d.LocLng = lng + (_rng.NextDouble() - 0.5) * spread;
+            d.LocAccuracyM = _rng.Next(15, 120);
+            d.LocAt = DateTime.UtcNow.AddMinutes(-_rng.Next(1, 30));
+            d.LocSource = "WiFi";
+            placed++;
+        }
+        if (placed > 0) await db.SaveChangesAsync(ct);
+
         // seed today's counters from the rollup
         var today = IngestService.Today();
         var daily = await db.Daily.AsNoTracking().Where(x => x.Day == today).ToDictionaryAsync(x => x.DeviceId, ct);

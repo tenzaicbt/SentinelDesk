@@ -38,7 +38,9 @@ public sealed class HeartbeatWorker(ServerClient server, AgentConfig config, Age
                         CurrentApp = state.CurrentApp, CurrentTitle = state.CurrentTitle, UserIdle = state.UserIdle, Locked = state.Locked,
                         QueueDepth = state.QueueDepth, PolicyVersion = policy.Current.Version, TrayRunning = state.TrayRunning,
                         ConnectionType = state.ConnectionType,
-                        TopDomains = policy.Current.Collectors.WebDomains ? state.TakeTopSites() : null
+                        TopDomains = policy.Current.Collectors.WebDomains ? state.TakeTopSites() : null,
+                        Location = policy.Current.Collectors.Location ? state.Location : null,
+                        LocationError = policy.Current.Collectors.Location && state.Location is null ? state.LocationError ?? "Waiting for a signed-in user (location is read in the user session)" : null
                     }, ct);
                     failures = 0;
                     state.LastHeartbeatUtc = DateTime.UtcNow;

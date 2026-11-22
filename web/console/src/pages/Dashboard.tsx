@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth'
 import { ago, appName, bytes, duration, shortDay } from '../lib/format'
 import { Badge, Card, Empty, OnlineDot, PageHeader, SeverityBadge, Skeleton, Stat } from '../components/ui'
 import { Legend, RankBars, S, UsageBars } from '../components/charts'
-import { BranchMap, type BranchPoint } from '../components/BranchMap'
+import { BranchMap, type BranchPoint, type DevicePoint } from '../components/BranchMap'
 import { useTheme } from '../components/Layout'
 
 interface DashboardData {
@@ -16,6 +16,7 @@ interface DashboardData {
   topSites: { domain: string; category: string; hits: number }[] | null
   categories: { category: string; hits: number }[] | null
   branches: BranchPoint[]
+  deviceLocations?: DevicePoint[]
   os: { name: string; count: number }[]
   versions: { name: string; count: number }[]
   recentAlerts: { id: number; title: string; severity: string; triggeredAt: string; deviceId: string; hostname: string }[]
@@ -78,9 +79,9 @@ export default function Dashboard() {
 
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2" pad={false} title={<span className="inline-flex items-center gap-1.5"><MapPin className="size-3.5" />Branch network</span>}
-          subtitle="Marker size = devices · ring = share online (green ≥80%, amber ≥50%, red below)">
+          subtitle={`Large markers = branches (size = devices, ring = share online: green ≥80%, amber ≥50%, red below)${data.deviceLocations?.length ? ` · small dots = ${data.deviceLocations.length} located device${data.deviceLocations.length === 1 ? '' : 's'} (green online, grey offline)` : ''}`}>
           <div className="p-3 pt-1">
-            <BranchMap branches={data.branches} dark={dark} onSelect={(id) => navigate(`/devices?orgUnitId=${id}`)} />
+            <BranchMap branches={data.branches} devices={data.deviceLocations} dark={dark} onSelect={(id) => navigate(`/devices?orgUnitId=${id}`)} onSelectDevice={(id) => navigate(`/devices/${id}`)} />
           </div>
         </Card>
         <Card title="Branches" subtitle="Online / total devices">

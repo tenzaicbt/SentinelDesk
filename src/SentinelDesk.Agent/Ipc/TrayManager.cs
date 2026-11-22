@@ -144,6 +144,14 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
                     });
                 }
                 break;
+            case "location" when c.Location:
+                if (msg.Location is { } loc && Math.Abs(loc.Lat) <= 90 && Math.Abs(loc.Lng) <= 180 && !(loc.Lat == 0 && loc.Lng == 0))
+                {
+                    state.Location = loc with { AccuracyM = Math.Clamp(loc.AccuracyM, 0, 1_000_000), AtUtc = loc.AtUtc > DateTime.UtcNow ? DateTime.UtcNow : loc.AtUtc.ToUniversalTime() };
+                    state.LocationError = null;
+                }
+                else state.LocationError = msg.LocationError is { Length: > 0 } err ? (err.Length > 200 ? err[..200] : err) : "No position available";
+                break;
             case "session" when c.Sessions && msg.SessionEvent is "lock" or "unlock":
                 state.Locked = msg.SessionEvent == "lock";
                 agg.AddEvent(new AgentEvent(DateTime.UtcNow, $"session.{msg.SessionEvent}", "info",
@@ -156,7 +164,8 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
     {
         Type = "config", Tray = policy.Current.Tray, CaptureWindowTitles = policy.Current.Collectors.CaptureWindowTitles,
         IdleThresholdSec = policy.Current.Collectors.IdleThresholdSec, ExcludeApps = policy.Current.Privacy.ExcludeApps,
-        DeviceId = config.DeviceId == Guid.Empty ? null : config.DeviceId.ToString(), AgentVersion = AgentInfo.Version, Server = config.ServerUrl
+        DeviceId = config.DeviceId == Guid.Empty ? null : config.DeviceId.ToString(), AgentVersion = AgentInfo.Version, Server = config.ServerUrl,
+        LocationEnabled = policy.Current.Collectors.Location, LocationIntervalMin = Math.Clamp(policy.Current.Collectors.LocationIntervalMin, 1, 120)
     };
 
     private PipeMessage StatusMessage() => new()

@@ -14,6 +14,7 @@ interface Settings {
     heartbeatSec: number; performanceSec: number; appUsage: boolean; captureWindowTitles: 'full' | 'masked' | 'none'; idleThresholdSec: number
     bandwidthPerProcess: boolean; bandwidthPerAdapter: boolean; webDomains: boolean; usbLog: boolean; usbBlock: boolean
     inventory: boolean; security: boolean; processes: boolean; sessions: boolean
+    location?: boolean; locationIntervalMin?: number
   }
   workingHours: { timeZone: string; days: string; start: string; end: string; collectOutsideHours: boolean }
   upload: { intervalSec: number; offlineMaxMb: number; offlineMaxDays: number }
@@ -123,6 +124,14 @@ function PolicyEditor({ p, onDuplicate, onDeleted }: { p: PolicyRow; onDuplicate
               <Switch disabled={ro} checked={c.security} onChange={(v) => setC({ security: v })} label="Security posture" description="AV, firewall, BitLocker, patches" />
               <Switch disabled={ro} checked={c.processes} onChange={(v) => setC({ processes: v })} label="Process activity" description="Process starts + 5-minute running snapshot" />
               <Switch disabled={ro} checked={c.sessions} onChange={(v) => setC({ sessions: v })} label="Sign-in sessions" description="Logon, logoff, lock, unlock" />
+              <Switch disabled={ro} checked={!!c.location} onChange={(v) => setC({ location: v })} label="Device location"
+                description="Windows Location (Wi-Fi / GPS) read in the signed-in user's session; shown on the map and device page. Tell staff before enabling (PDPA)." />
+              {c.location && (
+                <Field label="Location update every (minutes)" className="pl-11">
+                  <Input type="number" min={1} max={120} disabled={ro} className="w-32" value={c.locationIntervalMin ?? 5}
+                    onChange={(e) => setC({ locationIntervalMin: Math.min(120, Math.max(1, Number(e.target.value) || 5)) })} />
+                </Field>
+              )}
             </div>
           </Card>
 

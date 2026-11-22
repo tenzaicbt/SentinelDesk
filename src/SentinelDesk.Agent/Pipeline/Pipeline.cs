@@ -18,6 +18,8 @@ public sealed class AgentState
     public string? ConnectionType;
     public string? CurrentApp, CurrentTitle, CurrentUser;
     public bool UserIdle, Locked;
+    public volatile DeviceLocation? Location;
+    public volatile string? LocationError;
     public readonly ConcurrentDictionary<int, DateTime> TraySessions = new();
     public readonly DateTime StartedUtc = DateTime.UtcNow;
 

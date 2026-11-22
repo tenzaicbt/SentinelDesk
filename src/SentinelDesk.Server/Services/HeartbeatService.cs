@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using SentinelDesk.Server.Data;
 using SentinelDesk.Server.Hubs;
@@ -33,12 +34,44 @@ public sealed class HeartbeatService(PresenceStore presence, IHubContext<Console
             await db.SaveChangesAsync();
             invalidate.Invalidate(device.Id);
         }
+        await ApplyLocationAsync(db, tracked, hb, now);
 
         // Branch-scoped fan-out: unrestricted admins listen on live:all, branch admins on live:{unit}
         var groups = new List<string> { "live:all", $"device:{device.Id}" };
         if (device.OrgUnitId is { } unit) groups.Add($"live:{unit}");
         await hub.Clients.Groups(groups).SendAsync("presence", p);
         if (!wasOnline) await hub.Clients.Group("console").SendAsync("deviceOnline", new { device.Id, device.Hostname });
+    }
+
+    /// <summary>Latest position on the device row; history row when it moved &gt;150 m or every 30 min while stationary.</summary>
+    private static async Task ApplyLocationAsync(AppDb db, Device d, HeartbeatRequest hb, DateTime now)
+    {
+        if (hb.Location is not { } loc)
+        {
+            var err = hb.LocationError is { Length: > 200 } e ? e[..200] : hb.LocationError;
+            if (d.LocError != err) { d.LocError = err; await db.SaveChangesAsync(); }
+            return;
+        }
+        if (Math.Abs(loc.Lat) > 90 || Math.Abs(loc.Lng) > 180) return;
+        var at = loc.AtUtc > now ? now : loc.AtUtc;
+        if (d.LocAt == at && d.LocLat == loc.Lat && d.LocLng == loc.Lng) return; // same fix as the previous heartbeat
+        var source = loc.Source is { Length: > 32 } s ? s[..32] : loc.Source;
+
+        var last = await db.Locations.AsNoTracking().Where(x => x.DeviceId == d.Id).OrderByDescending(x => x.Time).FirstOrDefaultAsync();
+        if (last is null || DistanceM(last.Lat, last.Lng, loc.Lat, loc.Lng) > Math.Max(150, loc.AccuracyM) || at - last.Time > TimeSpan.FromMinutes(30))
+            db.Locations.Add(new LocationPoint { DeviceId = d.Id, Time = at, Lat = loc.Lat, Lng = loc.Lng, AccuracyM = loc.AccuracyM, Source = source });
+
+        d.LocLat = loc.Lat; d.LocLng = loc.Lng; d.LocAccuracyM = Math.Round(loc.AccuracyM); d.LocAt = at; d.LocSource = source; d.LocError = null;
+        await db.SaveChangesAsync();
+    }
+
+    public static double DistanceM(double lat1, double lng1, double lat2, double lng2)
+    {
+        const double R = 6_371_000;
+        double Rad(double v) => v * Math.PI / 180;
+        var dLat = Rad(lat2 - lat1); var dLng = Rad(lng2 - lng1);
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) + Math.Cos(Rad(lat1)) * Math.Cos(Rad(lat2)) * Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
+        return 2 * R * Math.Asin(Math.Min(1, Math.Sqrt(a)));
     }
 }
 

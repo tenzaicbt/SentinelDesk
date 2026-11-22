@@ -10,10 +10,12 @@ public sealed class TrayContext : ApplicationContext
     private readonly NotifyIcon _icon;
     private readonly AgentPipe _pipe = new();
     private readonly ActivityTracker _tracker = new();
+    private readonly LocationTracker _location;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     private readonly SynchronizationContext _ui;
     private readonly string _user = $"{Environment.UserDomainName}\\{Environment.UserName}";
     private int _tick;
+    private bool _locationEnabled;
     private string _state = "starting";
     private StatusForm? _status;
 
@@ -25,6 +27,7 @@ public sealed class TrayContext : ApplicationContext
     public TrayContext()
     {
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        _location = new LocationTracker(_pipe);
         var menu = new ContextMenuStrip { ShowImageMargin = false, Font = new Font("Segoe UI", 9.5f), Padding = new Padding(4) };
         menu.Items.Add("Status", null, (_, _) => ShowStatus());
         menu.Items.Add("Monitoring notice", null, (_, _) => ShowNotice());
@@ -73,6 +76,9 @@ public sealed class TrayContext : ApplicationContext
                 _tracker.ExcludeApps = new HashSet<string>(m.ExcludeApps ?? [], StringComparer.OrdinalIgnoreCase);
                 DeviceId = m.DeviceId;
                 AgentVersion = m.AgentVersion;
+                _location.Configure(m.LocationEnabled, m.LocationIntervalMin);
+                if (m.LocationEnabled && !_locationEnabled) NotifyLocationOnce();
+                _locationEnabled = m.LocationEnabled;
                 break;
             case "status":
                 LastStatus = m;
@@ -112,7 +118,20 @@ public sealed class TrayContext : ApplicationContext
         _status.Show();
     }
 
-    private void ShowNotice() => new NoticeForm(Settings).Show();
+    private void ShowNotice() => new NoticeForm(Settings, _locationEnabled).Show();
+
+    /// <summary>Tells each user once (per user profile) that location collection was turned on.</summary>
+    private void NotifyLocationOnce()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(@"Software\SentinelDesk");
+            if (key.GetValue("LocationNoticeShown") is not null) return;
+            key.SetValue("LocationNoticeShown", 1, RegistryValueKind.DWord);
+        }
+        catch { /* still show it */ }
+        _icon.ShowBalloonTip(10000, "SentinelDesk", "Your organisation has turned on device location for this computer. See \"Monitoring notice\" for details.", ToolTipIcon.Info);
+    }
 
     protected override void ExitThreadCore()
     {

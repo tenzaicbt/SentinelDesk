@@ -85,7 +85,14 @@ public sealed class HeartbeatRequest
     public string? ConnectionType { get; set; }
     /// <summary>Busiest sites right now (only when web-domain collection is allowed by policy).</summary>
     public List<LiveDomain>? TopDomains { get; set; }
+    /// <summary>Latest Windows location fix (only when location collection is enabled by policy).</summary>
+    public DeviceLocation? Location { get; set; }
+    /// <summary>Why no location is available (e.g. Windows location turned off), when enabled by policy.</summary>
+    public string? LocationError { get; set; }
 }
+
+/// <summary>A position from Windows Location (Wi-Fi / GPS / cell / IP based). Accuracy is the radius in metres.</summary>
+public sealed record DeviceLocation(double Lat, double Lng, double AccuracyM, DateTime AtUtc, string? Source);
 
 public sealed class HeartbeatResponse
 {
@@ -257,6 +264,9 @@ public sealed class CollectorSettings
     public bool Security { get; set; } = true;
     public bool Processes { get; set; } = true;
     public bool Sessions { get; set; } = true;
+    /// <summary>Device location from Windows Location. Off by default: enable per policy and tell staff (PDPA).</summary>
+    public bool Location { get; set; }
+    public int LocationIntervalMin { get; set; } = 5;
 }
 
 public sealed class WorkingHours
@@ -308,6 +318,8 @@ public sealed class PipeMessage
     public string? CurrentTitle { get; set; }
     public bool Idle { get; set; }
     public string? SessionEvent { get; set; }
+    public DeviceLocation? Location { get; set; }
+    public string? LocationError { get; set; }
     // agent → tray
     public string? State { get; set; }
     public string? StatusText { get; set; }
@@ -322,4 +334,6 @@ public sealed class PipeMessage
     public List<string>? ExcludeApps { get; set; }
     public string? DeviceId { get; set; }
     public string? AgentVersion { get; set; }
+    public bool LocationEnabled { get; set; }
+    public int LocationIntervalMin { get; set; }
 }

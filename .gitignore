@@ -13,6 +13,8 @@ src/SentinelDesk.Server/wwwroot/
 
 # runtime data: SQLite DB and server key material — never commit
 data/
+# ...but not the server's source folder Data/ (Windows paths are case-insensitive, so data/ also matched it)
+!src/SentinelDesk.Server/Data/
 **/data/keys/
 *.db
 *.db-shm

@@ -108,6 +108,7 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 -ServerUrl https://mo
 | Deep per-device view | Summary (live gauges and throughput), hardware, software with change history, applications (active/idle by hour, window titles, running processes), bandwidth (live, hourly, daily, per adapter, per application), websites (domains and categories), sessions, USB, security posture, unified timeline, remote commands. |
 | Island-wide | Outbound-only HTTPS from agents. Offline buffering (size/age capped). Exponential backoff with jitter. Branch map, org hierarchy (organization → region → branch → department), branch-scoped admins. |
 | Console | Overview dashboard, Live view, Devices, Alerts and rules (email/webhook), Reports with CSV export, Policies, Organization, Agent management, Admin users (RBAC + TOTP MFA), Audit log, Ctrl+K search, light/dark themes (including themed drop-down menus and in-app dialogs). |
+| Device location | Optional, per policy (*Collectors → Device location*, off by default). The tray reads Windows Location (Wi-Fi / GPS / IP based) in the signed-in user's session every few minutes. Devices appear as dots on the Overview map, and the device page has a *Location* tab with the accuracy radius and a 24 h / 7 day / 30 day trail. History is kept 30 days (`Retention:LocationDays`). Not visible to HR viewers; every trail view is audited. |
 | Enrollment tokens | Each token lists the devices it enrolled, with live online status. Active tokens can be copied again at any time (stored encrypted; every copy is audited). Older tokens kept only as a hash can be given a new value in place, without affecting enrolled devices. |
 
 ### Deliberate differences from the blueprint (MVP scope)
@@ -125,6 +126,7 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 -ServerUrl https://mo
 
 Visible tray icon and monitoring notice. No keystrokes, screenshots or content. Domain-level web logging by default.
 Window titles are masked by default and can be switched off. Excluded apps and domains. A working-hours gate.
+Device location is off unless a policy enables it; users are then told once by the tray and in the monitoring notice.
 HR viewers cannot see websites, titles or live activity. Every view and export is audited. Raw telemetry is kept 90 days
 and aggregates 2 years (configurable). Install only on company-owned devices, and have HR/legal approve the policy before rollout.
 

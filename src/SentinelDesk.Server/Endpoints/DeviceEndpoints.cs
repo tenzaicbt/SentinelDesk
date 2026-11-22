@@ -97,7 +97,23 @@ public static class DeviceEndpoints
                 Security = sec is null ? null : Json.Deserialize<SecurityPosture>(sec.Json),
                 SecurityCollectedAt = sec?.CollectedAt,
                 LiveChannel = presence.AgentConnection(id) is not null || (p?.Realtime ?? false),
+                Location = !scope.CanSeeWeb ? null : new
+                {
+                    Enabled = Json.Deserialize<AgentPolicy>(policy.Json)?.Collectors.Location ?? false, Lat = d.LocLat, Lng = d.LocLng, AccuracyM = d.LocAccuracyM, At = d.LocAt, Source = d.LocSource, Error = d.LocError,
+                },
             });
+        });
+
+        // Location history (trail) - not for HR viewers
+        g.MapGet("/{id:guid}/locations", async (Guid id, int? hours, AccessScope scope, AppDb db, AuditService audit) =>
+        {
+            if (!await scope.CanAccessDeviceAsync(id)) return Results.Forbid();
+            if (!scope.CanSeeWeb) return Results.Forbid();
+            var from = DateTime.UtcNow.AddHours(-Math.Clamp(hours ?? 24, 1, 24 * 30));
+            var list = await db.Locations.AsNoTracking().Where(x => x.DeviceId == id && x.Time >= from).OrderBy(x => x.Time)
+                .Select(x => new { x.Time, x.Lat, x.Lng, x.AccuracyM, x.Source }).ToListAsync();
+            await audit.LogAsync("device.location.view", id.ToString(), $"{hours ?? 24} h");
+            return Results.Ok(list);
         });
 
         g.MapGet("/{id:guid}/perf", async (Guid id, int? hours, AccessScope scope, AppDb db) =>
@@ -348,6 +364,7 @@ public static class DeviceEndpoints
     {
         if (ids.Count == 0) return;
         await db.Perf.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Locations.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
         await db.NetAdapter.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
         await db.NetProcess.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
         await db.AppUsage.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();

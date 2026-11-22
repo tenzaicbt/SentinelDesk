@@ -62,6 +62,18 @@ public static class DashboardEndpoints
                 TodayBytes = daily.Where(x => x.Day == today && devices.Any(d => d.Id == x.DeviceId && d.OrgUnitId == u.Id)).Sum(x => x.BytesIn + x.BytesOut)
             }).Where(b => b.Total > 0).OrderByDescending(b => b.Total).ToList();
 
+            // device positions (Windows location, when enabled by policy) - not for HR viewers
+            var located = scope.CanSeeWeb
+                ? (await (await scope.DevicesAsync()).Where(d => d.Status == DeviceStatus.Active && d.LocLat != null)
+                    .Select(d => new { d.Id, d.Hostname, d.LoggedInUser, d.OrgUnitId, d.LocLat, d.LocLng, d.LocAccuracyM, d.LocAt, d.LocSource }).ToListAsync())
+                    .Select(d => new
+                    {
+                        d.Id, d.Hostname, User = d.LoggedInUser, Branch = d.OrgUnitId is { } u ? units.FirstOrDefault(x => x.Id == u)?.Name : null,
+                        Lat = d.LocLat!.Value, Lng = d.LocLng!.Value, AccuracyM = d.LocAccuracyM ?? 0, At = d.LocAt, Source = d.LocSource,
+                        Online = presence.IsOnline(d.Id),
+                    }).ToList<object>()
+                : [];
+
             var alertsQ = db.Alerts.AsNoTracking().Where(a => a.Status == "open");
             if (restricted) alertsQ = alertsQ.Where(a => ids.Contains(a.DeviceId));
             var openAlerts = await alertsQ.GroupBy(a => a.Severity).Select(x => new { Severity = x.Key, Count = x.Count() }).ToListAsync();
@@ -93,6 +105,7 @@ public static class DashboardEndpoints
                 TopSites = topSites,
                 Categories = categories,
                 Branches = branches,
+                DeviceLocations = located,
                 Os = devices.GroupBy(d => d.Os).Select(x => new { Name = string.IsNullOrEmpty(x.Key) ? "Unknown" : x.Key, Count = x.Count() }),
                 Versions = devices.GroupBy(d => d.AgentVersion).Select(x => new { Name = x.Key, Count = x.Count() }).OrderByDescending(x => x.Name),
                 RecentAlerts = recentAlerts,

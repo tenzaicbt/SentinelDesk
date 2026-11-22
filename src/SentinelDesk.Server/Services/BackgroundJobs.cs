@@ -180,6 +180,8 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IConfiguration
                         + await db.Events.Where(x => x.Time < raw).ExecuteDeleteAsync(ct)
                         + await db.Daily.Where(x => x.Day < agg).ExecuteDeleteAsync(ct)
                         + await db.Commands.Where(x => x.CreatedAt < raw).ExecuteDeleteAsync(ct);
+                var loc = DateTime.UtcNow.AddDays(-config.GetValue("Retention:LocationDays", 30));
+                n += await db.Locations.Where(x => x.Time < loc).ExecuteDeleteAsync(ct);
                 await db.Commands.Where(c => c.Status == "pending" && c.ExpiresAt < DateTime.UtcNow)
                     .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, "expired"), ct);
                 if (n > 0) log.LogInformation("Retention removed {Count} rows", n);
@@ -200,10 +202,24 @@ public static class Seeder
             ("Web", "BytesOut", "INTEGER NOT NULL DEFAULT 0"),
             ("EnrollmentTokens", "TokenProtected", "TEXT NULL"),
             ("Devices", "EnrollmentTokenId", "TEXT NULL"),
+            ("Devices", "LocLat", "REAL NULL"),
+            ("Devices", "LocLng", "REAL NULL"),
+            ("Devices", "LocAccuracyM", "REAL NULL"),
+            ("Devices", "LocAt", "TEXT NULL"),
+            ("Devices", "LocSource", "TEXT NULL"),
+            ("Devices", "LocError", "TEXT NULL"),
         ];
         var added = new HashSet<string>();
         var conn = db.Database.GetDbConnection();
         await conn.OpenAsync();
+        // tables introduced after the first release
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "Locations" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Locations" PRIMARY KEY AUTOINCREMENT,
+                "DeviceId" TEXT NOT NULL, "Time" TEXT NOT NULL, "Lat" REAL NOT NULL, "Lng" REAL NOT NULL,
+                "AccuracyM" REAL NOT NULL, "Source" TEXT NULL);
+            CREATE INDEX IF NOT EXISTS "IX_Locations_DeviceId_Time" ON "Locations" ("DeviceId", "Time");
+            """);
         foreach (var (table, column, ddl) in columns)
         {
             await using var check = conn.CreateCommand();

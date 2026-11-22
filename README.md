@@ -5,6 +5,18 @@
 Implementation of [doc/Endpoint-Monitoring-System-Blueprint.md](doc/Endpoint-Monitoring-System-Blueprint.md):
 a protected Windows tray agent on every company PC/laptop plus a central, real-time web console.
 
+## Screenshots
+
+**Live activity:** what a device is doing right now (foreground app, live download/upload, CPU, memory, data today),
+streamed every 500 ms while you watch, plus active/idle time by hour, applications by active time and running processes.
+
+![Device page - Live activity tab](doc/screenshots/device-live-activity.png)
+
+**Internet usage:** live throughput, today by hour, daily data usage over 7/30/90 days, per-application traffic
+(from kernel ETW network events) and usage by network adapter.
+
+![Device page - Internet usage tab](doc/screenshots/device-internet-usage.png)
+
 ```
 src/
   SentinelDesk.Shared/   contracts, AES-GCM/RSA-OAEP payload crypto, ECDSA signing, HMAC device auth, URL categories
@@ -88,13 +100,15 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 -ServerUrl https://mo
 
 | Requirement | Implementation |
 |---|---|
-| Tray agent on every PC | `SentinelDesk.Agent` service + `SentinelDesk.Tray` (green/amber/red shield; menu: Status, Monitoring notice, Contact IT, About — no Exit). The agent relaunches a killed tray in every session and raises `tamper.trayKilled`. |
-| Install/uninstall need admin credentials | Elevated install. Service DACLs: only SYSTEM can stop, change or delete. Uninstall needs admin rights **and** the Uninstall Key (PBKDF2-hashed) or a per-device one-time code from the console; the removal phase then runs as SYSTEM. Failed keys raise `tamper.uninstallAttempt`. Guard and Agent restart each other. Stops, kills, binary changes, clock changes and forged commands raise alerts. |
+| Tray agent on every PC | `SentinelDesk.Agent` service + `SentinelDesk.Tray` (green/amber/red shield; menu: Status, Monitoring notice, Contact support, About — no Exit). The agent relaunches a killed tray in every session and raises `tamper.trayKilled`. |
+| Install/uninstall need admin credentials | Elevated install. Service DACLs: only SYSTEM can stop, change or delete. Uninstall needs admin rights **and** the Uninstall Key (PBKDF2-hashed) or a per-device one-time code from the console. The key is checked only by a SYSTEM task; after 5 wrong keys uninstalling is locked for 30 minutes (`tamper.uninstallAttempt`, `tamper.uninstallLockout`). Guard and Agent restart each other. Stops, kills, binary changes, clock changes and forged commands raise alerts. |
+| Protection against local administrators | The data folder (device secret, queue key, uninstall-key hash) is readable by SYSTEM only. Agent and Guard lock the services' registry keys to SYSTEM, register both services for Safe Mode, and repair and report any change to start type, program path, service account, deletion or tray auto-start (`tamper.serviceConfig`). A device that goes silent for more than 24 h raises a critical *possible removal* alert. |
 | Advanced encryption | TLS 1.2/1.3 with per-device ECDSA P-256 client certificates issued by the server's internal CA (TPM-backed key when available, bound to the device record). Every batch is AES-256-GCM with a fresh key wrapped by RSA-3072-OAEP. Offline queue: AES-256-GCM with a DPAPI-sealed key. Policies, commands and update packages are ECDSA-signed. Per-request HMAC device tokens with replay protection. Server keys are DPAPI-protected. |
 | Central configuration | Policies (collectors, intervals, title masking, excluded apps/domains, working hours, USB block, offline buffer, tray notice) assigned to org units or devices with inheritance, pushed instantly over SignalR. |
 | Deep per-device view | Summary (live gauges and throughput), hardware, software with change history, applications (active/idle by hour, window titles, running processes), bandwidth (live, hourly, daily, per adapter, per application), websites (domains and categories), sessions, USB, security posture, unified timeline, remote commands. |
 | Island-wide | Outbound-only HTTPS from agents. Offline buffering (size/age capped). Exponential backoff with jitter. Branch map, org hierarchy (organization → region → branch → department), branch-scoped admins. |
-| Console | Overview dashboard, Live view, Devices, Alerts and rules (email/webhook), Reports with CSV export, Policies, Organization, Agent management, Admin users (RBAC + TOTP MFA), Audit log, Ctrl+K search, light/dark themes. |
+| Console | Overview dashboard, Live view, Devices, Alerts and rules (email/webhook), Reports with CSV export, Policies, Organization, Agent management, Admin users (RBAC + TOTP MFA), Audit log, Ctrl+K search, light/dark themes (including themed drop-down menus and in-app dialogs). |
+| Enrollment tokens | Each token lists the devices it enrolled, with live online status. Active tokens can be copied again at any time (stored encrypted; every copy is audited). Older tokens kept only as a hash can be given a new value in place, without affecting enrolled devices. |
 
 ### Deliberate differences from the blueprint (MVP scope)
 

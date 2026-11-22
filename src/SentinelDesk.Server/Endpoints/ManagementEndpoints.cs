@@ -272,6 +272,22 @@ public static class ManagementEndpoints
             return Results.Ok(new { token = raw });
         });
 
+        // Issue a new secret for an existing token (same name, branch, limits and device history). The old value stops
+        // working for new enrollments; devices already enrolled are unaffected (the token is only checked at enrollment).
+        g.MapPost("/tokens/{id:guid}/regenerate", async (Guid id, AppDb db, ServerKeys keys, AuditService audit) =>
+        {
+            var t = await db.EnrollmentTokens.FirstOrDefaultAsync(x => x.Id == id);
+            if (t is null) return Results.NotFound();
+            if (t.Revoked) return Results.Problem("This token is revoked. Create a new token instead.", statusCode: 409);
+            var raw = "SD-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
+            t.TokenHash = AgentEndpoints.HashToken(raw);
+            t.TokenProtected = keys.ProtectToken(raw);
+            t.Prefix = raw[..9];
+            await db.SaveChangesAsync();
+            await audit.LogAsync("enrollToken.regenerate", t.Name);
+            return Results.Ok(new { token = raw });
+        });
+
         // Devices enrolled with this token (latest enrollment), with live status
         g.MapGet("/tokens/{id:guid}/devices", async (Guid id, AppDb db, PresenceStore presence) =>
         {

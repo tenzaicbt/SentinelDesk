@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Ban, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, FlaskConical, KeyRound, Monitor, PackagePlus, Rocket, ShieldCheck, Terminal, Trash2, Upload } from 'lucide-react'
+import { Ban, ChevronDown, ChevronRight, Copy, Download, FlaskConical, KeyRound, Monitor, PackagePlus, RefreshCw, Rocket, ShieldCheck, Terminal, Trash2, Upload } from 'lucide-react'
 import { api, ApiError, downloadPost } from '../lib/api'
 import { ago, bytes, dateTime } from '../lib/format'
 import { Badge, Button, Callout, Card, cx, Empty, Field, Input, Kv, Modal, OnlineDot, PageHeader, Select, Skeleton, Switch, Table, Tabs } from '../components/ui'
@@ -95,7 +95,7 @@ function Enrollment() {
                     onClick={() => t.devices > 0 && setExpanded(expanded === t.id ? null : t.id)}>
                     <td className="text-muted">{t.devices > 0 && (expanded === t.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />)}</td>
                     <td className="font-medium">{t.name}<div className="text-xs font-normal text-muted">by {t.createdBy} · {ago(t.createdAt)}</div></td>
-                    <td onClick={(e) => e.stopPropagation()}><TokenValue t={t} /></td>
+                    <td onClick={(e) => e.stopPropagation()}><TokenValue t={t} onChanged={() => qc.invalidateQueries({ queryKey: ['tokens'] })} /></td>
                     <td className="text-fg-2">{t.orgUnit ?? 'Unassigned'}</td>
                     <td>
                       {t.devices === 0 ? <span className="text-xs text-muted">None</span> : (
@@ -146,22 +146,36 @@ function Enrollment() {
   )
 }
 
-/** Token prefix with show / copy. The full token is decrypted server-side on demand (audited). */
-function TokenValue({ t }: { t: Token }) {
+/** Token prefix with copy. The full token is decrypted server-side on demand (audited). */
+function TokenValue({ t, onChanged }: { t: Token; onChanged: () => void }) {
   const [full, setFull] = useState<string | null>(null)
   const reveal = async () => {
     if (full) return full
     try { const r = await api.post<{ token: string }>(`/api/agents/tokens/${t.id}/reveal`); setFull(r.token); return r.token }
     catch (e) { toast.error(e instanceof ApiError ? e.message : 'Could not reveal token'); return null }
   }
-  if (!t.revealable) return <span className="font-mono text-xs text-muted" title="Created before tokens could be revealed: only a hash is stored">{t.prefix}…</span>
+  if (!t.revealable) return (
+    <span className="inline-flex items-center gap-1">
+      <span className="font-mono text-xs text-muted" title="Created before tokens could be revealed: only a hash is stored">{t.prefix}…</span>
+      {t.active && (
+        <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label="Issue new token value" title="Issue a new value you can copy"
+          onClick={async () => {
+            if (!(await confirmDialog({ title: `Issue a new value for "${t.name}"?`, message: 'This token was created before tokens could be shown again, so its value cannot be recovered. A new value will replace it - the old value stops working for new PCs. Devices already enrolled keep working and stay listed under this token.', confirmLabel: 'Issue new value' }))) return
+            try {
+              const r = await api.post<{ token: string }>(`/api/agents/tokens/${t.id}/regenerate`)
+              await navigator.clipboard.writeText(r.token).catch(() => {})
+              toast.success('New token value copied', { description: 'You can copy it again any time from the list.' })
+              onChanged()
+            } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Could not issue a new value') }
+          }}>
+          <RefreshCw className="size-3.5" />
+        </button>
+      )}
+    </span>
+  )
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={cx('font-mono text-xs', full && 'select-all text-fg')}>{full ?? `${t.prefix}…`}</span>
-      <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label={full ? 'Hide token' : 'Show token'} title={full ? 'Hide' : 'Show'}
-        onClick={async () => { if (full) setFull(null); else await reveal() }}>
-        {full ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-      </button>
+      <span className="font-mono text-xs">{t.prefix}…</span>
       <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label="Copy token" title="Copy"
         onClick={async () => { const v = await reveal(); if (v) { await navigator.clipboard.writeText(v); toast.success('Token copied', { description: 'Use it to enroll more PCs.' }) } }}>
         <Copy className="size-3.5" />

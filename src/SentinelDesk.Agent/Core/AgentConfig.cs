@@ -1,4 +1,3 @@
-using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
@@ -26,23 +25,15 @@ public static class AgentPaths
     public const string AgentServiceName = "SentinelDeskAgent";
     public const string GuardServiceName = "SentinelDeskGuard";
 
-    /// <summary>Creates the data directory with a SYSTEM + Administrators only ACL.</summary>
+    /// <summary>Creates the data directory; when running as SYSTEM it is locked to SYSTEM only (it holds the device secret,
+    /// queue key and uninstall-key hash, all readable by anyone who can read the folder).</summary>
     public static void EnsureDataDir()
     {
-        var di = Directory.CreateDirectory(DataDir);
+        Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(UpdatesDir);
         Directory.CreateDirectory(LogsDir);
         if (!OperatingSystem.IsWindows() || !IsSystem()) return;
-        try
-        {
-            var sec = new DirectorySecurity();
-            sec.SetAccessRuleProtection(true, false);
-            var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
-            sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
-            sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), FileSystemRights.ReadAndExecute, inherit, PropagationFlags.None, AccessControlType.Allow));
-            di.SetAccessControl(sec);
-        }
-        catch { /* best effort */ }
+        try { ServiceProtection.LockDataDir(DataDir); } catch { /* best effort */ }
     }
 
     public static bool IsSystem()

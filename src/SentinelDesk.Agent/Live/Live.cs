@@ -270,6 +270,8 @@ public sealed class UpdateManager(ServerClient server, AgentConfig config, Telem
 public sealed class TamperMonitor(TelemetryAggregator agg, ILogger<TamperMonitor> log) : BackgroundService
 {
     private long _guardOffset;
+    private bool _firstProtectPass = true;
+    private HashSet<string> _lastFindings = [];
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -288,6 +290,7 @@ public sealed class TamperMonitor(TelemetryAggregator agg, ILogger<TamperMonitor
                 sw.Restart();
                 wall = DateTime.UtcNow;
                 EnsureGuard();
+                Protect();
                 RelayGuardEvents();
                 File.WriteAllText(Path.Combine(AgentPaths.DataDir, "alive.json"), Json.Serialize(new { at = DateTime.UtcNow, clean = false }));
             }
@@ -333,6 +336,20 @@ public sealed class TamperMonitor(TelemetryAggregator agg, ILogger<TamperMonitor
             }
         }
         catch (InvalidOperationException) { /* guard not installed (dev) */ }
+    }
+
+    /// <summary>Same checks as the Guard (service registry keys, Safe Mode, tray auto-start), so each watches the other.</summary>
+    private void Protect()
+    {
+        if (!OperatingSystem.IsWindows() || !AgentPaths.IsSystem() || File.Exists(AgentPaths.UninstallMarker)
+            || File.Exists(Path.Combine(AgentPaths.UpdatesDir, "updating.flag"))) return;
+        List<string> findings;
+        try { findings = ServiceProtection.Enforce(AgentPaths.InstallDir, reportAcl: !_firstProtectPass); }
+        catch (Exception ex) { findings = [$"Service protection could not be verified: {ex.Message}"]; }
+        _firstProtectPass = false;
+        foreach (var f in findings.Where(f => !_lastFindings.Contains(f)))
+            agg.AddEvent(new AgentEvent(DateTime.UtcNow, "tamper.serviceConfig", "critical", f));
+        _lastFindings = [.. findings];
     }
 
     private void RelayGuardEvents()

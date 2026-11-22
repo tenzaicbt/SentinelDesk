@@ -8,16 +8,16 @@
   # prompts for the Uninstall Key
 
 .NOTES
-  The services are ACL'd so that only SYSTEM can stop/delete them. After the key is verified,
-  the privileged removal phase runs as SYSTEM through a one-shot scheduled task.
-  Failed attempts are reported to the console as "tamper.uninstallAttempt".
+  The services, their registry keys and the data folder are locked to SYSTEM. The key is therefore checked by a one-shot
+  SYSTEM task (administrators cannot read the stored hash), which also removes the agent when the key is valid.
+  Wrong keys are reported to the console as "tamper.uninstallAttempt"; after 5 wrong keys uninstalling is locked for
+  30 minutes ("tamper.uninstallLockout").
 #>
 [CmdletBinding()]
 param(
     [string] $UninstallKey,
     [switch] $RemoteAuthorized,   # used by the agent itself after a signed "uninstall" command from the console
-    [switch] $SystemPhase,
-    [string] $KeyFile
+    [switch] $SystemPhase   # internal: run as SYSTEM from the private work folder (key.txt / user.txt in, result.txt out)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +38,11 @@ function Remove-SentinelDesk {
         }
     }
     Get-Process SentinelDesk.Tray, SentinelDesk.Agent, SentinelDesk.Guard -ErrorAction SilentlyContinue | Stop-Process -Force
+    foreach ($mode in 'Minimal', 'Network') {
+        foreach ($svc in 'SentinelDeskAgent', 'SentinelDeskGuard') {
+            Remove-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\$mode\$svc" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'SentinelDesk' -ErrorAction SilentlyContinue
     Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SentinelDesk' -Recurse -Force -ErrorAction SilentlyContinue   # Apps & features entry (NSIS)
     Start-Sleep -Seconds 2
@@ -46,11 +51,19 @@ function Remove-SentinelDesk {
     & { $ErrorActionPreference = 'Continue'; schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null }
 }
 
-# -- Phase 2: running as SYSTEM
+# -- Phase 2: running as SYSTEM - checks the key (with lockout) and removes the agent when it is valid
 if ($SystemPhase) {
-    $key = Get-Content -Raw $KeyFile; Remove-Item -Force $KeyFile
-    & $AgentExe verify-uninstall-key $key.Trim() | Out-Null
-    if ($LASTEXITCODE -ne 0) { exit 1 }
+    $KeyFile    = Join-Path $PSScriptRoot 'key.txt'
+    $ResultFile = Join-Path $PSScriptRoot 'result.txt'
+    $UserFile   = Join-Path $PSScriptRoot 'user.txt'
+    $key = (Get-Content -Raw $KeyFile).Trim(); Remove-Item -Force $KeyFile
+    $verifyArgs = @('verify-uninstall-key', $key)
+    if (Test-Path $UserFile) { $verifyArgs += @('--user', (Get-Content -Raw $UserFile).Trim()) }
+    & { $ErrorActionPreference = 'Continue'; & $AgentExe @verifyArgs 2>&1 | Out-Null }
+    $code = $LASTEXITCODE
+    $verdict = switch ($code) { 0 { 'valid' } 3 { 'locked' } default { 'invalid' } }
+    Set-Content -Path $ResultFile -Value $verdict -NoNewline
+    if ($code -ne 0) { exit 1 }
     Remove-SentinelDesk
     exit 0
 }
@@ -76,26 +89,45 @@ if (-not $UninstallKey) {
     $secure = Read-Host -AsSecureString 'Enter the SentinelDesk Uninstall Key (or one-time code from the console)'
     $UninstallKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
 }
-& $AgentExe verify-uninstall-key $UninstallKey | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host 'Invalid Uninstall Key. This attempt has been logged and reported.' -ForegroundColor Red
-    exit 1
+if (-not (Test-Path $AgentExe)) { throw "SentinelDesk is not installed in $InstallDir." }
+
+# Hand the key to the SYSTEM phase through a private folder (random name, SYSTEM + Administrators only), so a standard
+# user cannot plant a script or read the key in the shared Windows\Temp.
+$work = Join-Path $env:windir "Temp\sd-uninstall-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $work | Out-Null
+icacls $work /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /Q | Out-Null
+$tmp    = Join-Path $work 'key.txt'
+$result = Join-Path $work 'result.txt'
+$self   = Join-Path $work 'uninstall.ps1'
+Set-Content -Path $tmp -Value $UninstallKey -NoNewline
+Copy-Item $PSCommandPath $self -Force
+Set-Content -Path (Join-Path $work 'user.txt') -Value $identity.Name -NoNewline
+
+$taskCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -SystemPhase"   # /TR is limited to 261 characters
+& {
+    $ErrorActionPreference = 'Continue'   # schtasks warns on stderr about the past start time: not an error
+    schtasks.exe /Create /TN $TaskName /RU SYSTEM /SC ONCE /ST 23:59 /RL HIGHEST /F /TR $taskCmd 2>&1 | Out-Null
+    schtasks.exe /Run /TN $TaskName 2>&1 | Out-Null
 }
 
-# Hand the key to the SYSTEM phase through an ACL-protected temp file
-$tmp = Join-Path $env:windir "Temp\sd-uninstall-$([guid]::NewGuid().ToString('N')).key"
-Set-Content -Path $tmp -Value $UninstallKey -NoNewline
-icacls $tmp /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' /Q | Out-Null
-$self = Join-Path $env:windir "Temp\sd-uninstall.ps1"
-Copy-Item $PSCommandPath $self -Force
-
-schtasks.exe /Create /TN $TaskName /RU SYSTEM /SC ONCE /ST 23:59 /RL HIGHEST /F `
-    /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -SystemPhase -KeyFile `"$tmp`"" | Out-Null
-schtasks.exe /Run /TN $TaskName | Out-Null
+Write-Host 'Checking the Uninstall Key...' -NoNewline
+for ($i = 0; $i -lt 90 -and -not (Test-Path $result); $i++) { Start-Sleep 1 }
+$verdict = if (Test-Path $result) { (Get-Content -Raw $result).Trim() } else { 'timeout' }
+if ($verdict -ne 'valid') {
+    & { $ErrorActionPreference = 'Continue'; schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null }
+    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    switch ($verdict) {
+        'locked'  { Write-Host ' locked.' -ForegroundColor Red; Write-Host 'Too many wrong keys. Uninstalling is locked for 30 minutes. This has been reported.' -ForegroundColor Red }
+        'timeout' { Write-Host ' failed.' -ForegroundColor Red; Write-Host 'The key could not be checked (the SYSTEM task did not run).' -ForegroundColor Red }
+        default   { Write-Host ' invalid.' -ForegroundColor Red; Write-Host 'Invalid Uninstall Key. This attempt has been logged and reported.' -ForegroundColor Red }
+    }
+    exit 1
+}
+Write-Host ' ok.'
 
 Write-Host 'Removing SentinelDesk...' -NoNewline
 for ($i = 0; $i -lt 60 -and (Get-Service SentinelDeskAgent -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1; Write-Host '.' -NoNewline }
 & { $ErrorActionPreference = 'Continue'; schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null }
-Remove-Item $self -Force -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 if (Get-Service SentinelDeskAgent -ErrorAction SilentlyContinue) { Write-Host ' failed.' -ForegroundColor Red; exit 1 }
 Write-Host ' done.' -ForegroundColor Green

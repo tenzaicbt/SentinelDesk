@@ -16,10 +16,11 @@ interface Rule { id: string; name: string; type: string; threshold: number; para
 const ruleTypes: Record<string, { label: string; threshold?: string; parameter?: string }> = {
   dataUsageDaily: { label: 'Daily data usage above', threshold: 'MB per device per day' },
   agentOffline: { label: 'Agent offline for', threshold: 'minutes' },
+  agentSilent: { label: 'Agent silent (possible removal) for', threshold: 'hours' },
   cpuHigh: { label: 'Sustained CPU above', threshold: '% (10-minute average)' },
   diskLow: { label: 'System disk usage above', threshold: '%' },
   software: { label: 'Unapproved software installed', parameter: 'Comma-separated names (substring match)' },
-  tamper: { label: 'Tamper attempt (stop/kill/uninstall/binary change)' },
+  tamper: { label: 'Tamper attempt (stop/kill/uninstall/registry/binary change)' },
   category: { label: 'Website category visited', parameter: 'Comma-separated categories, e.g. Gaming, Streaming' },
   usb: { label: 'USB storage connected' },
 }

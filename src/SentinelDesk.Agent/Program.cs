@@ -10,7 +10,7 @@ using SentinelDesk.Shared;
 //  SentinelDesk.Agent.exe console              → run interactively (diagnostics)
 //  SentinelDesk.Agent.exe enroll --server URL --token TOKEN [--pin SHA256] [--tofu]
 //  SentinelDesk.Agent.exe set-uninstall-key KEY   (admin; stores PBKDF2 hash)
-//  SentinelDesk.Agent.exe verify-uninstall-key KEY → exit code 0 = valid
+//  SentinelDesk.Agent.exe verify-uninstall-key KEY [--user NAME] → SYSTEM only; 0 valid, 1 invalid, 3 locked out
 //  SentinelDesk.Agent.exe status
 var cmd = args.FirstOrDefault()?.ToLowerInvariant();
 string? Arg(string name) { var i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
@@ -45,26 +45,55 @@ switch (cmd)
     }
     case "verify-uninstall-key":
     {
-        var key = args.ElementAtOrDefault(1) ?? "";
-        var c = AgentConfig.Load();
-        var ok = KeyHash.Verify(key, c.UninstallKeyHash)
-                 || (c.OneTimeUninstallExpiresUtc > DateTime.UtcNow && KeyHash.Verify(key.ToUpperInvariant(), c.OneTimeUninstallHash));
-        if (!ok)
+        // Runs as SYSTEM only (the uninstaller hands the key to a SYSTEM task): the hash lives in the SYSTEM-only data folder,
+        // so administrators cannot read it to guess offline, and the lockout below cannot be reset by them.
+        // Exit codes: 0 valid, 1 invalid, 3 locked out, 5 not SYSTEM.
+        if (!AgentPaths.IsSystem()) { Console.Error.WriteLine("The uninstall key can only be checked by the SentinelDesk uninstaller."); return 5; }
+        var key = (args.ElementAtOrDefault(1) ?? "").Trim();
+        var who = Arg("--user") ?? $"{Environment.UserDomainName}\\{Environment.UserName}";
+        var lockFile = Path.Combine(AgentPaths.DataDir, "uninstall-attempts.json");
+        void Event(string type, string message)
         {
-            // record the failed attempt for the tamper alert pipeline (relayed by the running agent)
-            try
-            {
-                File.AppendAllText(AgentPaths.GuardEvents, Json.Serialize(new AgentEvent(DateTime.UtcNow, "tamper.uninstallAttempt", "critical",
-                    $"Uninstall attempted with an invalid key by {Environment.UserDomainName}\\{Environment.UserName}")) + "\n");
-            }
-            catch { }
+            try { File.AppendAllText(AgentPaths.GuardEvents, Json.Serialize(new AgentEvent(DateTime.UtcNow, type, "critical", message)) + "\n"); } catch { }
         }
-        Console.WriteLine(ok ? "valid" : "invalid");
-        return ok ? 0 : 1;
+        var attempts = File.Exists(lockFile) ? Json.Deserialize<UninstallAttempts>(File.ReadAllText(lockFile)) ?? new() : new();
+        if (attempts.LockedUntilUtc > DateTime.UtcNow)
+        {
+            Event("tamper.uninstallAttempt", $"Uninstall attempted by {who} while locked out after repeated wrong keys");
+            Console.WriteLine($"locked until {attempts.LockedUntilUtc:yyyy-MM-dd HH:mm} UTC");
+            return 3;
+        }
+        var c = AgentConfig.Load();
+        var ok = key.Length > 0 && (KeyHash.Verify(key, c.UninstallKeyHash)
+                 || (c.OneTimeUninstallExpiresUtc > DateTime.UtcNow && KeyHash.Verify(key.ToUpperInvariant(), c.OneTimeUninstallHash)));
+        if (ok)
+        {
+            if (File.Exists(lockFile)) File.Delete(lockFile);
+            Console.WriteLine("valid");
+            return 0;
+        }
+        attempts.Failures++;
+        Event("tamper.uninstallAttempt", $"Uninstall attempted with a wrong key by {who} (attempt {attempts.Failures} of {UninstallAttempts.MaxFailures})");
+        if (attempts.Failures >= UninstallAttempts.MaxFailures)
+        {
+            attempts.LockedUntilUtc = DateTime.UtcNow.Add(UninstallAttempts.Lockout);
+            attempts.Failures = 0;
+            Event("tamper.uninstallLockout", $"Uninstall locked for {UninstallAttempts.Lockout.TotalMinutes:0} minutes after {UninstallAttempts.MaxFailures} wrong keys (last by {who})");
+        }
+        File.WriteAllText(lockFile, Json.Serialize(attempts));
+        Console.WriteLine(attempts.LockedUntilUtc > DateTime.UtcNow ? "locked" : "invalid");
+        return attempts.LockedUntilUtc > DateTime.UtcNow ? 3 : 1;
     }
     case "status":
     {
-        var c = AgentConfig.Load();
+        AgentConfig c;
+        try { c = AgentConfig.Load(); }
+        catch (UnauthorizedAccessException)
+        {
+            Console.WriteLine($"Agent version : {AgentInfo.Version}");
+            Console.WriteLine("Details       : protected (the data folder is readable by SYSTEM only)");
+            return 0;
+        }
         Console.WriteLine($"Agent version : {AgentInfo.Version}");
         Console.WriteLine($"Data dir      : {AgentPaths.DataDir}");
         Console.WriteLine($"Server        : {c.ServerUrl}");
@@ -124,3 +153,11 @@ if (!config.IsEnrolled && Environment.GetEnvironmentVariable("SENTINELDESK_SERVE
 log.LogInformation("SentinelDesk Agent {Version} starting (data: {Dir})", AgentInfo.Version, AgentPaths.DataDir);
 await host.RunAsync();
 return 0;
+
+sealed class UninstallAttempts
+{
+    public const int MaxFailures = 5;
+    public static readonly TimeSpan Lockout = TimeSpan.FromMinutes(30);
+    public int Failures { get; set; }
+    public DateTime? LockedUntilUtc { get; set; }
+}

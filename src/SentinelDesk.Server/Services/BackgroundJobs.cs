@@ -75,6 +75,20 @@ public sealed class AlertEngine(IServiceScopeFactory scopes, PresenceStore prese
                     { a.Status = "resolved"; a.HandledBy = "system"; a.HandledAt = now; }
                     break;
                 }
+                case "agentSilent":
+                {
+                    // An active device that has not reported for hours, without being uninstalled from the console, may have
+                    // had the agent removed or blocked (e.g. firewall, re-imaged PC). Threshold in hours.
+                    var hours = Math.Max(1, rule.Threshold);
+                    var cutoff = now.AddHours(-hours);
+                    foreach (var d in devices.Values.Where(d => d.LastSeenAt < cutoff && !presence.IsOnline(d.Id)))
+                        await Raise(rule, d.Id, $"silent{d.LastSeenAt!.Value.Ticks}", $"Agent silent for over {hours:0} h - possible removal",
+                            $"No contact since {d.LastSeenAt:yyyy-MM-dd HH:mm} UTC (last IP {d.LastIp}). If the PC was retired, mark it retired in Devices.");
+                    var open = await db.Alerts.Where(a => a.RuleId == rule.Id && a.Status != "resolved").ToListAsync(ct);
+                    foreach (var a in open.Where(a => presence.IsOnline(a.DeviceId)))
+                    { a.Status = "resolved"; a.HandledBy = "system"; a.HandledAt = now; }
+                    break;
+                }
                 case "cpuHigh":
                 {
                     var from = now.AddMinutes(-10);
@@ -272,6 +286,12 @@ public static class Seeder
                 new AlertRule { Name = "Unapproved software", Type = "software", Parameter = "uTorrent, BitTorrent, TeamViewer, AnyDesk, CCleaner", Severity = "warning" },
                 new AlertRule { Name = "Gaming / streaming during work", Type = "category", Parameter = "Gaming", Severity = "info" },
                 new AlertRule { Name = "USB storage connected", Type = "usb", Severity = "info", Enabled = false });
+        }
+        // added after the first release: make sure existing installations get it too
+        if (!await db.AlertRules.AnyAsync(r => r.Type == "agentSilent"))
+        {
+            db.AlertRules.Add(new AlertRule { Name = "Agent silent > 24 h (possible removal)", Type = "agentSilent", Threshold = 24, Severity = "critical", NotifyEmail = true, NotifyWebhook = true });
+            await db.SaveChangesAsync();
         }
         // Local development: a well-known enrollment token so `dotnet run` of the agent enrolls itself
         if (config["Dev:EnrollToken"] is { Length: > 0 } devToken)

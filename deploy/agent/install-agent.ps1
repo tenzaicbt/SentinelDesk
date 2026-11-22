@@ -15,7 +15,9 @@
     3. Enrolls the device (TPM-backed key + CSR -> device certificate)
     4. Stores the PBKDF2 hash of the Uninstall Key
     5. Registers both services as LocalSystem, auto-start, restart-on-failure
-    6. Locks down folder ACLs, starts the services, hardens the service DACLs (only SYSTEM can stop/delete)
+    6. Locks down folder ACLs (data folder: SYSTEM only), starts the services, hardens the service DACLs (only SYSTEM can
+       stop/delete). Once running, Agent and Guard lock the services' registry keys, register them for Safe Mode and repair
+       any change (reported as tamper alerts).
     7. Registers the tray app for every user session
   Any failure rolls the install back. Full log: C:\Windows\Temp\SentinelDesk-Install.log
 #>
@@ -135,10 +137,14 @@ try {
     # (OI)(CI) ACEs are meaningless on files, so each file ends up with an EMPTY DACL - even SYSTEM cannot start the exe.)
     Invoke-Native 'Securing install folder' { icacls $InstallDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)RX' '*S-1-5-32-545:(OI)(CI)RX' /Q } | Out-Null
     Invoke-Native 'Securing install folder contents' { icacls (Join-Path $InstallDir '*') /reset /T /C /Q } | Out-Null
-    Invoke-Native 'Securing data folder' { icacls $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)RX' /Q } | Out-Null
-    Invoke-Native 'Securing data folder contents' { icacls (Join-Path $DataDir '*') /reset /T /C /Q } | Out-Null
+    # Data folder: SYSTEM only, owned by SYSTEM. It holds the device secret, the offline-queue key and the uninstall-key
+    # hash; administrators must not be able to read them (offline key guessing, device impersonation) or re-grant access.
+    # (order matters: once the folder is SYSTEM-only this admin session can no longer list or change its contents)
+    Invoke-Native 'Resetting data folder contents' { icacls (Join-Path $DataDir '*') /reset /T /C /Q } | Out-Null
+    Invoke-Native 'Setting data folder owner' { icacls $DataDir /setowner '*S-1-5-18' /T /C /Q } | Out-Null
+    Invoke-Native 'Securing data folder' { icacls $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' /Q } | Out-Null
+    Invoke-Native 'Setting install folder owner' { icacls $InstallDir /setowner '*S-1-5-18' /T /C /Q } | Out-Null
     try { [IO.File]::OpenRead($AgentExe).Dispose() } catch { throw "Install folder permissions are broken - the agent executable cannot be read: $($_.Exception.Message)" }
-    icacls (Join-Path $DataDir 'guard-events.jsonl') /grant '*S-1-5-32-544:M' /Q | Out-Null   # lets failed uninstall attempts be recorded
 
     Write-Step 'Starting services'
     foreach ($svc in $Services) {

@@ -26,10 +26,13 @@ public sealed class GuardWorker(ILogger<GuardWorker> log) : BackgroundService
 
     private string? _lastReportedHash;
     private int _restarts;
+    private bool _firstProtectPass = true;
+    private HashSet<string> _lastFindings = [];
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         Directory.CreateDirectory(DataDir);
+        try { ServiceProtection.LockDataDir(DataDir); } catch (Exception ex) { log.LogWarning(ex, "Could not lock data folder"); }
         await Task.Delay(TimeSpan.FromSeconds(20), ct);
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
         do
@@ -39,11 +42,25 @@ public sealed class GuardWorker(ILogger<GuardWorker> log) : BackgroundService
                 if (File.Exists(UninstallMarker)) continue; // authorized uninstall in progress
                 var pending = Path.Combine(UpdatesDir, "pending.json");
                 if (File.Exists(pending)) { await ApplyUpdateAsync(pending, ct); continue; }
+                Protect();
                 EnsureAgentRunning();
                 CheckIntegrity();
             }
             catch (Exception ex) { log.LogError(ex, "Guard tick failed"); }
         } while (await timer.WaitForNextTickAsync(ct));
+    }
+
+    /// <summary>Service registry keys, Safe Mode registration and tray auto-start: repaired and reported if changed.</summary>
+    private void Protect()
+    {
+        List<string> findings;
+        try { findings = ServiceProtection.Enforce(InstallDir, reportAcl: !_firstProtectPass); }
+        catch (Exception ex) { findings = [$"Service protection could not be verified: {ex.Message}"]; }
+        _firstProtectPass = false;
+        // report each problem once per occurrence (a problem we cannot repair would otherwise repeat every 10 s)
+        foreach (var f in findings.Where(f => !_lastFindings.Contains(f)))
+            Emit("tamper.serviceConfig", "critical", f);
+        _lastFindings = [.. findings];
     }
 
     private void EnsureAgentRunning()

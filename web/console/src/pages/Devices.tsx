@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Bell, Download, Laptop, MessageSquare, Monitor, RefreshCw, Search } from 'lucide-react'
-import { api } from '../lib/api'
+import { ArrowDown, ArrowUp, Bell, Download, Laptop, MessageSquare, Monitor, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { api, ApiError } from '../lib/api'
+import { confirmDialog } from '../components/dialog'
 import { useAuth } from '../lib/auth'
 import { useHubEvent, useHubGroup, type Presence } from '../lib/hub'
 import { ago, appName, bytes } from '../lib/format'
@@ -22,6 +23,7 @@ type SortKey = 'hostname' | 'user' | 'branch' | 'todayBytes' | 'cpu' | 'lastSeen
 export default function Devices() {
   const [params, setParams] = useSearchParams()
   const { can } = useAuth()
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [online, setOnline] = useState('')
@@ -69,6 +71,21 @@ export default function Devices() {
     const r = await api.post<{ queued: number }>('/api/devices/bulk-command', { deviceIds: [...selected], type, payload })
     toast.success(`Command queued for ${r.queued} devices`)
     setSelected(new Set())
+  }
+
+  const remove = async () => {
+    const n = selected.size
+    if (!(await confirmDialog({
+      title: `Delete ${n} device${n === 1 ? '' : 's'}?`,
+      message: 'The selected devices and all of their history are permanently deleted. This cannot be undone. Agents still installed on these PCs stop reporting but are not removed - use Remote uninstall for that.',
+      confirmLabel: n === 1 ? 'Delete device' : `Delete ${n} devices`, tone: 'danger',
+    }))) return
+    try {
+      const r = await api.post<{ deleted: number }>('/api/devices/delete', { deviceIds: [...selected] })
+      toast.success(`${r.deleted} device${r.deleted === 1 ? '' : 's'} deleted`)
+      setSelected(new Set())
+      qc.invalidateQueries({ queryKey: ['devices'] })
+    } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Delete failed') }
   }
 
   const exportCsv = () => {
@@ -122,6 +139,7 @@ export default function Devices() {
             <Button size="sm" icon={<RefreshCw className="size-3.5" />} onClick={() => bulk('refreshInventory')}>Refresh inventory</Button>
             <Button size="sm" icon={<Download className="size-3.5" />} onClick={() => bulk('collectNow')}>Collect now</Button>
             <Button size="sm" icon={<MessageSquare className="size-3.5" />} onClick={() => setMsgOpen(true)}>Send message</Button>
+            {can.super && <Button size="sm" variant="danger" icon={<Trash2 className="size-3.5" />} onClick={remove}>Delete</Button>}
             <button className="ml-auto text-xs text-muted hover:text-fg" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         )}

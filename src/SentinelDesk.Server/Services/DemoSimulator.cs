@@ -126,24 +126,7 @@ public sealed class DemoSimulator(IServiceScopeFactory scopes, IConfiguration co
     public static async Task<int> PurgeAsync(AppDb db)
     {
         var ids = await db.Devices.Where(d => d.IsSimulated).Select(d => d.Id).ToListAsync();
-        if (ids.Count > 0)
-        {
-            await db.Perf.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.NetAdapter.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.NetProcess.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.AppUsage.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Web.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Events.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Daily.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Software.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Hardware.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Security.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Processes.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Commands.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.Alerts.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
-            await db.PolicyAssignments.Where(x => x.TargetType == "device" && ids.Contains(x.TargetId)).ExecuteDeleteAsync();
-            await db.Devices.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync();
-        }
+        await Endpoints.DeviceEndpoints.DeleteDevicesAsync(db, ids);
 
         // the demo moved "Head Office" (renamed Colombo HQ) under a demo region — put it back under the root
         var root = await db.OrgUnits.FirstOrDefaultAsync(o => o.ParentId == null);

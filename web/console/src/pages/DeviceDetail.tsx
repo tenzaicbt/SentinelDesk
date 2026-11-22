@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Activity, AppWindow, ArrowDown, ArrowLeft, ArrowUp, Ban, CheckCircle2, ChevronRight, Globe, KeyRound, Laptop, ListTree,
@@ -149,6 +149,7 @@ export default function DeviceDetail() {
 function DeviceActions({ d, online }: { d: Device; online: boolean }) {
   const { can } = useAuth()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [menu, setMenu] = useState(false)
   const [msg, setMsg] = useState(false)
   const [move, setMove] = useState(false)
@@ -206,6 +207,25 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
                 })) cmd('uninstall')
               }}>
                 Remote uninstall
+              </MenuItem>
+            )}
+            {can.super && (
+              <MenuItem danger icon={<Trash2 className="size-4" />} onClick={async () => {
+                setMenu(false)
+                if (!(await confirmDialog({
+                  title: `Delete ${d.hostname}?`,
+                  message: 'The device and all of its history (activity, internet usage, browsing, inventory, events and alerts) are permanently deleted. This cannot be undone.',
+                  note: online ? 'The agent is still running on this PC. It will stop reporting, but stays installed - use Remote uninstall first to remove it.' : undefined,
+                  confirmLabel: 'Delete device', tone: 'danger',
+                }))) return
+                try {
+                  await api.post('/api/devices/delete', { deviceIds: [d.id] })
+                  toast.success(`${d.hostname} deleted`)
+                  qc.invalidateQueries({ queryKey: ['devices'] })
+                  navigate('/devices')
+                } catch (e) { fail(e) }
+              }}>
+                Delete device
               </MenuItem>
             )}
           </div>

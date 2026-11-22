@@ -12,6 +12,7 @@ public static class DeviceEndpoints
     public sealed record CommandRequest(string Type, string? Payload);
     public sealed record UpdateDeviceRequest(Guid? OrgUnitId, string? Tags);
     public sealed record BulkCommandRequest(Guid[] DeviceIds, string Type, string? Payload);
+    public sealed record DeleteDevicesRequest(Guid[] DeviceIds);
 
     private static readonly string[] AllowedCommands =
     [
@@ -318,6 +319,20 @@ public static class DeviceEndpoints
             });
         }
 
+        // Permanently delete devices and all their data (Super Admin). Unlike "retire", nothing is kept. An agent that is still
+        // installed can no longer authenticate and stops reporting; use Remote uninstall first to remove it from the PC.
+        app.MapPost("/api/devices/delete", async (DeleteDevicesRequest req, AccessScope scope, AppDb db, AuditService audit, DeviceCache cache, PresenceStore presence) =>
+        {
+            var ids = new List<Guid>();
+            foreach (var id in req.DeviceIds.Distinct().Take(5000))
+                if (await scope.CanAccessDeviceAsync(id)) ids.Add(id);
+            var names = await db.Devices.Where(d => ids.Contains(d.Id)).Select(d => d.Hostname).ToListAsync();
+            await DeleteDevicesAsync(db, ids);
+            foreach (var id in ids) { presence.Remove(id); cache.Invalidate(id); }
+            await audit.LogAsync("device.delete", names.Count == 1 ? names[0] : $"{names.Count} devices", string.Join(", ", names.Take(50)));
+            return Results.Ok(new { deleted = names.Count });
+        }).RequireAuthorization("Super");
+
         app.MapDelete("/api/devices/simulated", async (AppDb db, AuditService audit, PresenceStore presence) =>
         {
             var ids = await db.Devices.Where(d => d.IsSimulated).Select(d => d.Id).ToListAsync();
@@ -326,6 +341,27 @@ public static class DeviceEndpoints
             await audit.LogAsync("demo.purge", $"{ids.Count} devices");
             return Results.Ok(new { removed = ids.Count });
         }).RequireAuthorization("Super");
+    }
+
+    /// <summary>Removes devices and every row that belongs to them (telemetry, inventory, events, commands, alerts, assignments).</summary>
+    public static async Task DeleteDevicesAsync(AppDb db, ICollection<Guid> ids)
+    {
+        if (ids.Count == 0) return;
+        await db.Perf.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.NetAdapter.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.NetProcess.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.AppUsage.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Web.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Events.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Daily.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Software.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Hardware.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Security.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Processes.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Commands.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.Alerts.Where(x => ids.Contains(x.DeviceId)).ExecuteDeleteAsync();
+        await db.PolicyAssignments.Where(x => x.TargetType == "device" && ids.Contains(x.TargetId)).ExecuteDeleteAsync();
+        await db.Devices.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync();
     }
 
     public static HashSet<Guid> Subtree(Guid root, IEnumerable<(Guid Id, Guid? ParentId)> all)

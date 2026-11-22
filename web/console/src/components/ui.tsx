@@ -1,7 +1,7 @@
 import { clsx } from 'clsx'
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { Children, isValidElement, useEffect, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, CheckCircle2, Info, Loader2, OctagonAlert, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Info, Loader2, OctagonAlert, X } from 'lucide-react'
 
 export const cx = clsx
 
@@ -61,17 +61,127 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   )
 }
 
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+interface SelectOption { value: string; label: ReactNode; disabled?: boolean }
+
+function textOf(n: ReactNode): string {
+  if (n == null || typeof n === 'boolean') return ''
+  if (typeof n === 'string' || typeof n === 'number') return String(n)
+  if (Array.isArray(n)) return n.map(textOf).join('')
+  if (isValidElement<{ children?: ReactNode }>(n)) return textOf(n.props.children)
+  return ''
+}
+
+function collectOptions(children: ReactNode, out: SelectOption[] = []): SelectOption[] {
+  Children.forEach(children, (c) => {
+    if (!isValidElement<{ children?: ReactNode; value?: string | number; disabled?: boolean }>(c)) return
+    if (c.type === 'option') out.push({ value: c.props.value != null ? String(c.props.value) : textOf(c.props.children), label: c.props.children, disabled: c.props.disabled })
+    else collectOptions(c.props.children, out)
+  })
+  return out
+}
+
+/** Themed drop-down with the same API as a native <select> (value / onChange(e.target.value) / <option> children).
+ *  The list is drawn by us rather than the browser, so it follows the light/dark theme. */
+export function Select({ className, children, value, onChange, disabled, id, 'aria-label': ariaLabel }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const options = collectOptions(children)
+  const current = String(value ?? '')
+  const selected = options.find((o) => o.value === current) ?? options[0]
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; width: number } | null>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+
+  const place = () => {
+    const r = btn.current?.getBoundingClientRect()
+    if (!r) return
+    const up = window.innerHeight - r.bottom < 240 && r.top > window.innerHeight - r.bottom
+    setPos(up ? { left: r.left, bottom: window.innerHeight - r.top + 4, width: r.width } : { left: r.left, top: r.bottom + 4, width: r.width })
+  }
+  const show = () => {
+    if (disabled) return
+    place(); setOpen(true)
+    setActive(Math.max(0, options.findIndex((o) => o.value === selected?.value)))
+  }
+  const choose = (o: SelectOption) => {
+    if (o.disabled) return
+    setOpen(false); btn.current?.focus()
+    if (o.value !== current) onChange?.({ target: { value: o.value }, currentTarget: { value: o.value } } as unknown as ChangeEvent<HTMLSelectElement>)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => { if (!btn.current?.contains(e.target as Node) && !list.current?.contains(e.target as Node)) setOpen(false) }
+    const move = (e: Event) => { if (!list.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', away)
+    window.addEventListener('resize', move)
+    window.addEventListener('scroll', move, true)
+    return () => { document.removeEventListener('mousedown', away); window.removeEventListener('resize', move); window.removeEventListener('scroll', move, true) }
+  }, [open])
+  useEffect(() => { if (open) list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' }) }, [open, active])
+
+  const step = (from: number, dir: 1 | -1) => {
+    for (let i = from + dir; i >= 0 && i < options.length; i += dir) if (!options[i].disabled) return i
+    return from
+  }
+  const onKey = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); show() }
+      return
+    }
+    if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation() } setOpen(false) }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => step(a, 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => step(a, -1)) }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(step(-1, 1)) }
+    else if (e.key === 'End') { e.preventDefault(); setActive(step(options.length, -1)) }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (options[active]) choose(options[active]) }
+    else if (e.key.length === 1) {
+      const k = e.key.toLowerCase()
+      const i = options.findIndex((o, j) => j > active && !o.disabled && textOf(o.label).toLowerCase().startsWith(k))
+      const first = options.findIndex((o) => !o.disabled && textOf(o.label).toLowerCase().startsWith(k))
+      if (i >= 0 || first >= 0) setActive(i >= 0 ? i : first)
+    }
+  }
+
   return (
-    <select
-      {...rest}
-      className={cx(
-        'h-8 rounded-md border border-line-strong bg-transparent px-2.5 pr-8 text-sm text-fg shadow-xs outline-none dark:bg-white/4.5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>option]:bg-panel',
-        className,
+    <>
+      <button
+        ref={btn} type="button" id={id} disabled={disabled} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
+        onClick={(e) => { e.preventDefault(); if (open) setOpen(false); else show() }} onKeyDown={onKey}
+        className={cx(
+          'inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-line-strong bg-transparent pl-2.5 pr-2 text-left text-sm text-fg shadow-xs outline-none transition-[color,box-shadow] dark:bg-white/4.5',
+          'hover:bg-panel-2 dark:hover:bg-white/8 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+          open && 'border-ring ring-[3px] ring-ring/50',
+          className,
+        )}
+      >
+        <span className="truncate">{selected?.label}</span>
+        <ChevronDown className={cx('size-4 shrink-0 text-muted transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && pos && createPortal(
+        <div
+          ref={list} role="listbox" onMouseDown={(e) => e.stopPropagation()}
+          style={{ left: pos.left, top: pos.top, bottom: pos.bottom, minWidth: pos.width }}
+          className="fixed z-70 max-h-60 max-w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-line bg-panel p-1 text-sm text-fg shadow-lg animate-rise"
+        >
+          {options.map((o, i) => (
+            <div
+              key={`${o.value}-${i}`} data-i={i} role="option" aria-selected={o.value === selected?.value} aria-disabled={o.disabled}
+              onMouseEnter={() => !o.disabled && setActive(i)} onClick={() => choose(o)}
+              className={cx(
+                'flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-8 relative',
+                i === active && !o.disabled && 'bg-panel-2 dark:bg-white/8',
+                o.disabled && 'opacity-50',
+              )}
+            >
+              <span className="truncate">{o.label}</span>
+              {o.value === selected?.value && <Check className="absolute right-2 size-4 text-brand" />}
+            </div>
+          ))}
+        </div>,
+        document.body,
       )}
-    >
-      {children}
-    </select>
+    </>
   )
 }
 

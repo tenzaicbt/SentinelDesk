@@ -47,7 +47,6 @@ function Enrollment() {
   const [form, setForm] = useState({ name: '', orgUnitId: '', days: 30, uses: 500, autoApprove: true })
   const [created, setCreated] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const server = window.location.origin.replace(':5080', ':5443').replace(':5173', ':5443')
 
   const create = async () => {
     const r = await api.post<{ token: string }>('/api/agents/tokens', { ...form, orgUnitId: form.orgUnitId || null })
@@ -57,16 +56,7 @@ function Enrollment() {
   return (
     <div className="space-y-3">
       <OfficeInstaller org={org} onCreated={() => qc.invalidateQueries({ queryKey: ['tokens'] })} />
-      <div className="grid gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2" title="Manual / scripted deployment" subtitle="Elevated install (admin credentials) · works with GPO startup scripts, Intune Win32 apps or SCCM">
-          <ol className="space-y-3 text-sm text-fg-2">
-            <li><b className="text-fg">1.</b> Build the agent bundle: <code className="rounded bg-panel-2 px-1.5 font-mono text-xs">./build.ps1</code> → <code className="rounded bg-panel-2 px-1.5 font-mono text-xs">publish/agent</code></li>
-            <li><b className="text-fg">2.</b> Create an enrollment token for the target branch (below).</li>
-            <li><b className="text-fg">3.</b> Run as administrator on each PC (or push silently):</li>
-          </ol>
-          <div className="mt-3"><CopyBlock text={`powershell -ExecutionPolicy Bypass -File install-agent.ps1 -ServerUrl ${server} -EnrollToken <TOKEN> -UninstallKey "<organisation uninstall key>"`} /></div>
-          <p className="mt-3 text-xs text-muted">Add <code className="font-mono">-ServerCertSha256 &lt;hash&gt;</code> to pin a private TLS certificate, or <code className="font-mono">-TrustOnFirstUse</code> for lab environments.</p>
-        </Card>
+      <div>
         <Card title="Uninstall protection">
           <ul className="space-y-2.5 text-sm text-fg-2">
             <li className="flex gap-2"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-good-ink" />Services ACL'd — only SYSTEM can stop or delete them</li>

@@ -26,3 +26,6 @@ data/
 # local notes / secrets
 .env
 *.env
+
+# public release package (separate repository)
+Git/

@@ -2,8 +2,12 @@
 
 > **Project codename:** `SentinelDesk` (rename freely)
 > **Scope:** Organization-wide (island-wide, multi-branch) monitoring of company PCs and laptops through a protected tray agent and a central web console.
-> **Version:** 1.0 — Blueprint
-> **Date:** 2026-11-20
+> **Version:** 1.2.1 — Blueprint (first written as 1.0 on 2026-11-20)
+> **Date:** 2026-11-23
+>
+> **What changed in 1.2.1:** policies are now **block policies** (block websites, applications and USB drives) that
+> stack on top of one standard monitoring configuration (§4.5, §7.1, §7.2, §8.1); the tray shows a notice for blocked
+> programs and lets an administrator reconnect a device with a new enrollment token (§4.4, §5.5).
 
 ---
 
@@ -14,7 +18,7 @@
 | 1 | Small agent on every PC/laptop, visible in system tray | Windows Service (core) + lightweight Tray App (UI/status) |
 | 2 | Install **and** uninstall require admin credentials | Signed MSI with elevation, uninstall password + admin check, service ACL hardening, watchdog, tamper alerts |
 | 3 | Advanced encryption | mTLS (TLS 1.3) per-device certificates, AES-256-GCM payload encryption, encrypted local buffer (SQLCipher + DPAPI/TPM key) |
-| 4 | Central web system to configure all agents | Policy engine, groups (branch/department), remote config push in real time |
+| 4 | Central web system to configure all agents | Policy engine, groups (branch/department), remote config push in real time; block policies for websites, applications and USB drives (§4.5) |
 | 5 | Deep per-device view | Hardware/software inventory, bandwidth, URLs/websites, running apps, app usage time, daily live data usage, logged-in user, idle/active time, USB events, alerts |
 | 6 | Works across the whole island (many branches, remote laptops) | Internet-facing HTTPS gateway (or VPN), offline buffering, auto-reconnect, delta sync |
 
@@ -132,7 +136,7 @@
 |---|---|---|
 | `SentinelDesk.Agent.exe` (service) | LocalSystem | Collect, encrypt, buffer, upload, apply policy, receive commands |
 | `SentinelDesk.Guard.exe` (service) | LocalSystem | Watchdog: restart Agent if killed, verify binaries’ signatures, run updates, report tampering |
-| `SentinelDesk.Tray.exe` (per user, auto-start via `HKLM\...\Run`) | Logged-in user | Tray icon (green/amber/red), monitoring notice, foreground-window tracking, idle time (`GetLastInputInfo`) |
+| `SentinelDesk.Tray.exe` (per user, auto-start via `HKLM\...\Run`) | Logged-in user | Tray icon (green/amber/red), monitoring notice, foreground-window tracking, idle time (`GetLastInputInfo`); "blocked" notice for blocked programs (`--blocked`); elevated *Reconnect to server* window (`--reconnect`) |
 
 ### 4.2 Data Collectors
 
@@ -172,8 +176,36 @@ Collectors ──► In-memory channel (System.Threading.Channels)
 ### 4.4 Tray App Behaviour
 
 - Icon states: 🟢 Connected · 🟡 Offline (buffering) · 🔴 Error/Policy violation.
-- Menu: *About*, *Monitoring Notice* (what is collected), *Status*, *Contact IT*. **No “Exit” / “Stop” option.**
+- Menu: *Status*, *Monitoring notice* (what is collected), *Contact support*, *About*, *Reconnect to server (administrator)…*. **No “Exit” / “Stop” option.**
 - If tray is killed, Agent restarts it in the user session (`WTSQueryUserToken` + `CreateProcessAsUser`) and logs a tamper event.
+- When Windows refuses to start a blocked program, it runs `SentinelDesk.Tray.exe --blocked <program>` instead: the tray
+  reports the attempt to the agent and shows *"<program> is blocked by your organisation's policy"* (§4.5).
+- *Reconnect to server* relaunches the tray elevated (UAC, administrator credentials) to enter a new enrollment token (§5.5).
+
+### 4.5 Enforcement — Block Policies
+
+The agent enforces three kinds of restriction, each delivered as part of the signed policy (§7.2). Everything is
+re-applied every minute; a change made on the device is reverted and reported as `tamper.blockList`.
+
+| Restriction | How it is enforced on Windows | What the user sees |
+|---|---|---|
+| **Websites** | (1) The browsers' enterprise URL block lists — `URLBlocklist` for Chrome, Edge and Brave, `WebsiteFilter` for Firefox — in `HKLM\SOFTWARE\Policies` (path rules such as `youtube.com/shorts` work here). (2) A managed section of the `hosts` file pointing blocked domains at `0.0.0.0` for every other app. (3) The browsers' own secure DNS (DoH) is turned off while websites are blocked, so the hosts file cannot be bypassed. (4) After every change the agent sends the Windows policy-refresh signal (`RefreshPolicyEx`, as `gpupdate` does) so open browsers reload their list. | The browser's own *"This page is blocked — your organisation doesn't allow you to view this site"* page; other apps cannot connect |
+| **Applications** | (1) *Image File Execution Options* `Debugger` redirect to `SentinelDesk.Tray.exe --blocked`, so Windows never starts the program. (2) A process watcher (kernel ETW process-start events + a 3-second sweep) closes running copies and catches wildcard rules (`*torrent*`). | A short notice explaining the program is blocked (text set in the policy) |
+| **USB drives** | `USBSTOR` service disabled (`Start = 4`) | Pen drives and external disks don't mount; mice, keyboards and printers still work |
+
+- **Rules:** a domain blocks the site and all its subdomains; built-in *categories* (Social, Messaging, Streaming,
+  Gaming, Shopping, News, AI Tools, Cloud Storage) expand to their known domains; whole-site rules for big services
+  also block their helper domains (e.g. `tiktok.com` → `tiktokcdn.com`, `ttwstatic.com`; `youtube.com` →
+  `googlevideo.com`, `ytimg.com`) so an open tab or installed web app stops too.
+- **Safety:** Windows, sign-in and SentinelDesk programs and domains (`explorer.exe`, `svchost.exe`, `microsoft.com`,
+  `live.com`, …) are rejected by both the console and the agent. Entries written by other tools in the browser lists
+  are kept; previous secure-DNS settings are remembered and restored.
+- **Reporting:** blocked launches (`block.app`) and lookups of blocked domains (`block.web`) are sent as events,
+  rate-limited per app/domain; the alert rule *Blocked application or website* raises alerts.
+- **Removal:** unblocking removes the agent's entries and empty policy folders; uninstalling removes every block
+  (IFEO entries, browser lists, hosts section) and restores the browsers' secure-DNS settings.
+- **Limits:** application rules match the file name (a renamed copy is not caught); website blocking is by domain, so a
+  VPN, proxy or a browser with its own DNS outside the four supported browsers can get around it.
 
 ---
 
@@ -220,6 +252,20 @@ Collectors ──► In-memory channel (System.Threading.Channels)
 
 - Device certs valid 1 year, auto-renewed at 70 % lifetime.
 - Revocation list (CRL/OCSP) checked at gateway — revoke a stolen laptop instantly.
+
+### 5.5 Re-enrollment from the Device (administrator)
+
+When a device can no longer authenticate (e.g. it was removed in the console, or its credentials no longer match the
+server), an administrator re-enrolls it without reinstalling:
+
+1. Console → *Agent management* → *New token* (name + target unit only; valid 30 days, up to 500 devices, auto-approved).
+2. On the device: tray → *Reconnect to server (administrator)…* → Windows UAC prompt (administrator credentials).
+3. The elevated tray sends the token over the agent's named pipe. The agent accepts it **only** from the signed tray
+   binary running elevated as a member of Administrators (checked from the client process token); anything else is
+   refused and reported as `tamper.reenrollDenied`.
+4. The agent enrolls again in-process (new key pair + CSR), max 5 attempts per 10 minutes. A failed attempt leaves the
+   current server address, certificate pin and credentials untouched. Success is logged as `agent.reconnected`.
+5. A new server address is allowed, but trusting its certificate (TOFU) needs an explicit tick-box.
 
 ---
 
@@ -281,11 +327,11 @@ message ServerCommand {
 | ├ Security | AV, firewall, BitLocker, updates |
 | └ Timeline | Unified chronological activity feed |
 | **Live view** | Real-time grid of online devices with current app + current bandwidth (SignalR) |
-| **Policies** | Create policy → assign to org/branch/department/device; collectors on/off, intervals, URL logging level, window-title masking, data retention, USB rules, working hours |
+| **Policies** | Three kinds of **block policy** — *Block websites* (addresses, page paths, categories), *Block applications* (program names, wildcards, user message), *Block USB drives* — each with its own page and applied to all computers, a branch/department or single devices. They stack: a device gets every block policy on itself, its department, branch, region or the organization. Monitoring settings (collectors, intervals, window-title masking, working hours, privacy exclusions) come from the hidden **Default** policy and are not edited in the console since 1.2.1 |
 | **Groups & Org structure** | Head office → Regions/Provinces → Branches → Departments |
-| **Alerts & Rules** | e.g., “Data usage > 2 GB/day”, “Agent offline > 30 min”, “Unapproved software installed”, “Tamper attempt”, “Blocked category visited” → email/SMS/Teams |
+| **Alerts & Rules** | e.g., “Data usage > 2 GB/day”, “Agent offline > 30 min”, “Unapproved software installed”, “Tamper attempt”, “Blocked category visited”, “Blocked application or website” → email/SMS/Teams |
 | **Reports** | Daily/weekly/monthly data usage, app usage, website usage, inventory, compliance; export PDF/Excel; scheduled email |
-| **Agent management** | Versions, staged rollout (10 % → 50 % → 100 %), enrollment tokens, uninstall keys |
+| **Agent management** | Versions, staged rollout (10 % → 50 % → 100 %; a release is only offered to devices on a lower version), enrollment tokens (name + target unit; 30 days, 500 devices, auto-approved), uninstall keys, office installer |
 | **Admin users & RBAC** | Roles: Super Admin, Branch IT Admin (only their branch), Auditor (read-only), HR Viewer (reports only, no URLs) |
 | **Audit log** | Who viewed/changed what and when |
 
@@ -307,9 +353,23 @@ message ServerCommand {
   "workingHours": { "tz": "Asia/Colombo", "days": "Mon-Fri", "start": "08:30", "end": "17:00", "collectOutsideHours": false },
   "upload": { "batchMax": 500, "intervalSec": 60, "offlineMaxMB": 200 },
   "privacy": { "excludeApps": ["KeePass.exe"], "excludeDomains": ["*.bank.lk"] },
+  "block": {
+    "urls": ["tiktok.com", "youtube.com/shorts"],
+    "categories": ["Social"],
+    "apps": ["steam.exe", "*torrent*.exe"],
+    "notifyUser": true,
+    "message": "This application is blocked by your organisation's policy."
+  },
   "signature": "MEUCIQ..."
 }
 ```
+
+**How the delivered policy is built (since 1.2.1).** Each stored policy has a *kind*: `monitoring` (the Default
+policy: everything above except `block`) or a restriction — `websites` (keeps `block.urls` + `block.categories`),
+`apps` (keeps `block.apps`, `notifyUser`, `message`) or `usb` (sets `collectors.usb.block`). For each device the server
+takes the Default policy and merges in **every** restriction policy assigned to the device or any org unit above it
+(lists are unioned; USB block is on if any USB policy applies), then signs the result. The effective version is a hash
+of the Default policy and all applied restriction policies (id + version), so any change triggers a re-download.
 
 ---
 
@@ -325,8 +385,10 @@ devices(id, org_unit_id, hostname, serial, os, os_build, agent_version,
 device_users(id, device_id, username, domain, last_logon_at)
 hardware_inventory(device_id, collected_at, json_data)
 software_inventory(device_id, name, version, publisher, installed_at, removed_at)
-policies(id, name, version, json, signed_blob, created_by, created_at)
+policies(id, name, kind, version, json, signed_blob, created_by, created_at)
+                                                      -- kind: monitoring | websites | apps | usb
 policy_assignments(policy_id, target_type, target_id, priority)
+                                                      -- one monitoring policy per target; any number of restrictions
 alert_rules(id, name, condition_json, severity, channels)
 alerts(id, rule_id, device_id, triggered_at, status, details)
 admin_users(id, email, role, org_unit_scope)
@@ -524,6 +586,11 @@ Monitoring employees is legal for **company-owned devices** when done transparen
 | **8. Hardening & Pilot** | 3 wks | Pen-test, load test (simulate 10k agents), pilot 1 branch → staged island-wide rollout |
 
 **Total:** ~6–7 months for a 3–4 person team (1 agent/Windows dev, 1 backend, 1 frontend, 0.5 DevOps/QA).
+
+**Delivered in 1.2.1 (from phases 4, 5 and 7):** block policies for websites (browser block lists + hosts file +
+secure-DNS control + categories and helper domains), applications (IFEO + process watcher) and USB drives, with
+tamper repair, attempt logging and an alert rule; stacking policy model; tray re-enrollment by an administrator.
+Still open from phase 7: browser extension for full URLs.
 
 ---
 

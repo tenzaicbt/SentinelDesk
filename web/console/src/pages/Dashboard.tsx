@@ -104,13 +104,13 @@ export default function Dashboard() {
       <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
         <Card title={<span className="inline-flex items-center gap-1.5"><AppWindow className="size-3.5" />Top applications today</span>} subtitle="Foreground (active) time across the fleet">
           {data.topApps.length ? (
-            <RankBars rows={data.topApps.map((a) => ({ key: a.app, label: appName(a.app), value: a.seconds, sub: `${a.devices} PCs` }))} format={duration} />
+            <RankBars rows={data.topApps.map((a) => ({ key: a.app, label: appName(a.app), value: a.seconds, sub: plural(a.devices, 'PC') }))} format={duration} />
           ) : <Empty title="No application activity yet today" />}
         </Card>
         {can.web && (
           <Card title={<span className="inline-flex items-center gap-1.5"><Globe className="size-3.5" />Top websites today</span>} subtitle="By DNS lookups (domain level), background traffic excluded">
             {data.topSites?.length ? (
-              <RankBars color="var(--series-7)" rows={data.topSites.map((s) => ({ key: s.domain, label: <span className="inline-flex items-center gap-2">{s.domain}<Badge>{s.category}</Badge></span>, value: s.hits }))} format={(v) => v.toLocaleString()} />
+              <RankBars rows={data.topSites.map((s) => ({ key: s.domain, label: <span className="inline-flex min-w-0 items-center gap-2"><span className="truncate">{s.domain}</span>{s.category && s.category !== 'Uncategorized' && <Badge>{s.category}</Badge>}</span>, value: s.hits }))} format={(v) => `${v.toLocaleString()} lookups`} />
             ) : <Empty title="No web activity yet today" />}
           </Card>
         )}
@@ -120,9 +120,9 @@ export default function Dashboard() {
               {data.recentAlerts.map((a) => (
                 <li key={a.id}>
                   <Link to={`/devices/${a.deviceId}`} className="flex items-start gap-3 rounded-lg p-2 hover:bg-panel-2">
-                    <SeverityBadge severity={a.severity} />
+                    <span className="flex w-[4.75rem] shrink-0 justify-start pt-px"><SeverityBadge severity={a.severity} /></span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">{a.title}</span>
+                      <span className="block truncate text-sm font-medium">{a.title}</span>
                       <span className="block text-xs text-muted">{a.hostname} · {ago(a.triggeredAt)}</span>
                     </span>
                   </Link>
@@ -131,18 +131,77 @@ export default function Dashboard() {
             </ul>
           ) : <Empty icon={<Bell className="size-5" />} title="All clear">No open alerts.</Empty>}
         </Card>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
         {can.web && data.categories && data.categories.length > 0 && (
-          <Card title="Web categories today" subtitle="Share of lookups by category">
-            <RankBars color="var(--series-3)" rows={data.categories.slice(0, 8).map((c) => ({ key: c.category, label: c.category, value: c.hits }))} format={(v) => v.toLocaleString()} />
+          <Card className="xl:col-span-2" title="Web categories today" subtitle="Share of DNS lookups by category">
+            <CategoryShare rows={data.categories} />
           </Card>
         )}
-        <Card title={<span className="inline-flex items-center gap-1.5"><HardDrive className="size-3.5" />Operating systems</span>}>
-          <RankBars color="var(--series-1)" rows={data.os.map((o) => ({ key: o.name, label: o.name, value: o.count }))} format={(v) => `${v} devices`} />
-        </Card>
-        <Card title="Agent versions" subtitle="Plan staged rollouts in Agent management">
-          <RankBars color="var(--series-1)" rows={data.versions.map((o) => ({ key: o.name, label: `v${o.name || 'unknown'}`, value: o.count }))} format={(v) => `${v} devices`} />
+        <Card title={<span className="inline-flex items-center gap-1.5"><HardDrive className="size-3.5" />Fleet software</span>} subtitle="Plan staged rollouts in Agent management">
+          <ShareList heading="Operating systems" rows={data.os.map((o) => ({ key: o.name, label: o.name || 'Unknown', value: o.count }))} />
+          <div className="mt-4"><ShareList heading="Agent versions" rows={data.versions.map((o) => ({ key: o.name, label: o.name ? `v${o.name}` : 'Unknown', value: o.count }))} /></div>
         </Card>
       </div>
     </>
+  )
+}
+
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+
+/** Categorical palette for shares; "Uncategorized" and the remainder stay neutral so real categories stand out. */
+const SHARE_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-7)']
+const NEUTRAL = 'var(--axis)'
+
+function CategoryShare({ rows }: { rows: { category: string; hits: number }[] }) {
+  const total = rows.reduce((t, r) => t + r.hits, 0) || 1
+  const named = rows.filter((r) => r.category !== 'Uncategorized')
+  const top = named.slice(0, SHARE_COLORS.length).map((r, i) => ({ label: r.category, value: r.hits, color: SHARE_COLORS[i] }))
+  const rest = named.slice(SHARE_COLORS.length).reduce((t, r) => t + r.hits, 0)
+  const unc = rows.find((r) => r.category === 'Uncategorized')?.hits ?? 0
+  const parts = [...top, ...(rest ? [{ label: 'Other', value: rest, color: NEUTRAL }] : []), ...(unc ? [{ label: 'Uncategorized', value: unc, color: NEUTRAL }] : [])]
+  const pct = (v: number) => `${Math.round((v / total) * 100)}%`
+  return (
+    <>
+      <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="Share of lookups by category">
+        {parts.map((p) => (
+          <div key={p.label} title={`${p.label}: ${p.value.toLocaleString()} (${pct(p.value)})`} className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(p.value / total) * 100}%`, background: p.color, opacity: p.label === 'Uncategorized' ? 0.45 : 1 }} />
+        ))}
+      </div>
+      <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        {parts.map((p) => (
+          <li key={p.label} className="flex items-center gap-2 text-[13px]">
+            <span className="inline-block size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color, opacity: p.label === 'Uncategorized' ? 0.45 : 1 }} />
+            <span className="min-w-0 flex-1 truncate text-fg">{p.label}</span>
+            <span className="tabular text-fg-2">{p.value.toLocaleString()}</span>
+            <span className="w-10 text-right tabular text-muted">{pct(p.value)}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function ShareList({ heading, rows }: { heading: string; rows: { key: string; label: string; value: number }[] }) {
+  const total = rows.reduce((t, r) => t + r.value, 0) || 1
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium text-muted">{heading}</h3>
+      {rows.length ? (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.key} className="text-[13px]">
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <span className="min-w-0 truncate text-fg">{r.label}</span>
+                <span className="shrink-0 tabular text-fg-2">{plural(r.value, 'device')}<span className="ml-1.5 text-muted">{Math.round((r.value / total) * 100)}%</span></span>
+              </div>
+              <div className="h-1.5 rounded-full bg-panel-2"><div className="h-full rounded-full" style={{ width: `${Math.max(2, (r.value / total) * 100)}%`, background: 'var(--series-1)' }} /></div>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-xs text-muted">No data yet</p>}
+    </section>
   )
 }

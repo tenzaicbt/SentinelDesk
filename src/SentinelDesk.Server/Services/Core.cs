@@ -48,15 +48,18 @@ public sealed class PolicyService(AppDb db, ServerKeys keys)
 {
     public static AgentPolicy DefaultPolicy() => new() { PolicyId = "default", Name = "Default" };
 
-    /// <summary>The device's monitoring policy, the restriction policies stacked on top, and the version of the combination.</summary>
-    public sealed record Resolved(Policy Policy, IReadOnlyList<Policy> Restrictions, int EffectiveVersion);
-
-    public async Task<Resolved> ResolveAsync(Device device)
+    /// <summary>The device's monitoring policy, the block policies on it (with when each one ends), its exceptions,
+    /// whether an emergency unblock applies, and the version of the combination.</summary>
+    public sealed record Resolved(Policy Policy, IReadOnlyList<Policy> Restrictions, int EffectiveVersion)
     {
-        var assignments = await db.PolicyAssignments.AsNoTracking().ToListAsync();
-        var policies = await db.Policies.AsNoTracking().ToDictionaryAsync(p => p.Id);
+        public IReadOnlyDictionary<Guid, DateTime?> Until { get; init; } = new Dictionary<Guid, DateTime?>();
+        public IReadOnlyList<BlockExceptionRow> Exceptions { get; init; } = [];
+        public EmergencyUnblock? Emergency { get; init; }
+    }
 
-        // targets from most to least specific: the device, then its org unit and every parent up to the organization
+    /// <summary>The device, then its org unit and every parent up to the organization (most specific first).</summary>
+    public async Task<List<(string Type, Guid Id)>> ChainAsync(Device device)
+    {
         var chain = new List<(string Type, Guid Id)> { ("device", device.Id) };
         if (device.OrgUnitId is { } unit)
         {
@@ -68,52 +71,81 @@ public sealed class PolicyService(AppDb db, ServerKeys keys)
                 cursor = units.TryGetValue(c, out var ou) ? ou.ParentId : null;
             }
         }
-        var applying = chain.SelectMany(t => assignments.Where(a => a.TargetType == t.Type && a.TargetId == t.Id))
-            .Select(a => policies.GetValueOrDefault(a.PolicyId)).OfType<Policy>().ToList();
+        return chain;
+    }
+
+    public async Task<Resolved> ResolveAsync(Device device)
+    {
+        var now = DateTime.UtcNow;
+        var assignments = (await db.PolicyAssignments.AsNoTracking().ToListAsync()).Where(a => a.UntilUtc is null || a.UntilUtc > now).ToList();
+        var policies = await db.Policies.AsNoTracking().ToDictionaryAsync(p => p.Id);
+        var chain = await ChainAsync(device);
+        bool InChain(string type, Guid id) => chain.Any(t => t.Type == type && t.Id == id);
 
         // monitoring settings always come from the Default policy (the console only manages block policies)
         var main = policies.Values.FirstOrDefault(p => p.IsDefault) ?? await db.Policies.AsNoTracking().FirstAsync(p => p.IsDefault);
-        var restrictions = applying.Where(p => PolicyKinds.IsRestriction(p.Kind)).DistinctBy(p => p.Id).OrderBy(p => p.Id).ToList();
-        return new Resolved(main, restrictions, EffectiveVersion(main, restrictions));
+
+        var emergencies = await db.EmergencyUnblocks.AsNoTracking().Where(e => e.EndedAt == null).ToListAsync();
+        var emergency = emergencies.FirstOrDefault(e => (e.UntilUtc is null || e.UntilUtc > now) && (e.OrgUnitId is null || InChain("orgUnit", e.OrgUnitId.Value)));
+
+        var restrictions = new List<Policy>();
+        var until = new Dictionary<Guid, DateTime?>();
+        var exceptions = new List<BlockExceptionRow>();
+        if (emergency is null)
+        {
+            foreach (var a in assignments.Where(a => InChain(a.TargetType, a.TargetId)))
+            {
+                if (!policies.TryGetValue(a.PolicyId, out var p) || !PolicyKinds.IsRestriction(p.Kind)) continue;
+                if (!until.ContainsKey(p.Id)) { restrictions.Add(p); until[p.Id] = a.UntilUtc; }
+                else if (until[p.Id] is { } u) until[p.Id] = a.UntilUtc is null ? null : (a.UntilUtc > u ? a.UntilUtc : u);   // the longest assignment wins
+            }
+            restrictions = [.. restrictions.OrderBy(p => p.Id)];
+            exceptions = (await db.BlockExceptions.AsNoTracking().ToListAsync())
+                .Where(e => (e.UntilUtc is null || e.UntilUtc > now) && InChain(e.TargetType, e.TargetId)).OrderBy(e => e.Id).ToList();
+        }
+
+        var key = string.Join(";", restrictions.Select(r => $"{r.Id:N}|{r.Version}|{until[r.Id]:O}")
+            .Concat(exceptions.Select(e => $"x{e.Id:N}|{e.UntilUtc:O}"))
+            .Prepend(emergency is null ? "" : $"e{emergency.Id:N}")
+            .Prepend($"{main.Id:N}|{main.Version}"));
+        return new Resolved(main, restrictions, (int)(Crc32.HashToUInt32(Encoding.UTF8.GetBytes(key)) & 0x7FFFFFFF))
+        { Until = until, Exceptions = exceptions, Emergency = emergency };
     }
 
-    public static int EffectiveVersion(Policy main, IEnumerable<Policy> restrictions)
-    {
-        var key = string.Join(";", restrictions.Select(r => $"{r.Id:N}|{r.Version}").Prepend($"{main.Id:N}|{main.Version}"));
-        return (int)(Crc32.HashToUInt32(Encoding.UTF8.GetBytes(key)) & 0x7FFFFFFF);
-    }
-
-    /// <summary>Adds a restriction policy's rules to the device's effective policy.</summary>
-    public static void Merge(AgentPolicy into, Policy restriction)
+    /// <summary>One block policy as a rule set for the agent, which applies schedules, users and expiry itself (also offline).</summary>
+    public static BlockRuleSet ToRuleSet(Policy restriction, DateTime? untilUtc)
     {
         var r = Json.Deserialize<AgentPolicy>(restriction.Json)?.Block ?? new BlockSettings();
-        var b = into.Block;
-        switch (restriction.Kind)
+        return new BlockRuleSet
         {
-            case PolicyKinds.Websites:
-                b.Urls = [.. b.Urls.Union(r.Urls, StringComparer.OrdinalIgnoreCase)];
-                b.Categories = [.. b.Categories.Union(r.Categories, StringComparer.OrdinalIgnoreCase)];
-                break;
-            case PolicyKinds.Apps:
-                if (b.Apps.Count == 0) { b.NotifyUser = r.NotifyUser; b.Message = r.Message; }
-                b.Apps = [.. b.Apps.Union(r.Apps, StringComparer.OrdinalIgnoreCase)];
-                break;
-            case PolicyKinds.Usb:
-                into.Collectors.UsbBlock = true;
-                break;
-        }
+            PolicyId = restriction.Id.ToString(), Name = restriction.Name, Kind = restriction.Kind,
+            Urls = restriction.Kind == PolicyKinds.Websites ? r.Urls : [],
+            Categories = restriction.Kind == PolicyKinds.Websites ? r.Categories : [],
+            Apps = restriction.Kind == PolicyKinds.Apps ? r.Apps : [],
+            Mode = r.Mode, Schedule = r.Schedule, Users = r.Users, ExpiresUtc = untilUtc,
+            NotifyUser = r.NotifyUser, Message = r.Message, UsbMode = r.UsbMode, UsbAllowSerials = r.UsbAllowSerials,
+        };
     }
 
     public async Task<SignedPolicy> SignedForAsync(Device device)
     {
-        var (policy, restrictions, version) = await ResolveAsync(device);
-        var model = Json.Deserialize<AgentPolicy>(policy.Json) ?? DefaultPolicy();
-        foreach (var r in restrictions) Merge(model, r);
-        model.PolicyId = policy.Id.ToString();
-        model.Name = restrictions.Count == 0 ? policy.Name : $"{policy.Name} + {string.Join(", ", restrictions.Select(r => r.Name))}";
-        model.Version = version;
+        var res = await ResolveAsync(device);
+        var model = Json.Deserialize<AgentPolicy>(res.Policy.Json) ?? DefaultPolicy();
+        model.Block = new BlockSettings
+        {
+            Sets = [.. res.Restrictions.Select(r => ToRuleSet(r, res.Until.GetValueOrDefault(r.Id)))],
+            Exceptions = [.. res.Exceptions.Select(e => new BlockException
+            {
+                PolicyId = e.PolicyId?.ToString(), Kind = e.Kind, Value = e.Value, ExpiresUtc = e.UntilUtc, Reason = e.Reason,
+            })],
+        };
+        model.Collectors.UsbBlock = false;   // USB is decided by the agent from the USB rule sets
+        model.PolicyId = res.Policy.Id.ToString();
+        model.Name = res.Emergency is not null ? $"{res.Policy.Name} (emergency unblock)"
+            : res.Restrictions.Count == 0 ? res.Policy.Name : $"{res.Policy.Name} + {string.Join(", ", res.Restrictions.Select(r => r.Name))}";
+        model.Version = res.EffectiveVersion;
         var json = Json.Serialize(model);
-        return new SignedPolicy { Version = version, PolicyJson = json, Signature = Signing.Sign(keys.SigningKey, json) };
+        return new SignedPolicy { Version = res.EffectiveVersion, PolicyJson = json, Signature = Signing.Sign(keys.SigningKey, json) };
     }
 }
 

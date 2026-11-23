@@ -141,8 +141,17 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
                 break;
             case "blocked" when msg.CurrentApp is { Length: > 0 } blockedApp:
                 // sent by the tray's IFEO notice when Windows refused to start a blocked program
-                if (BlockRules.AppRules(policy.Current.Block).Any(r => BlockRules.WildcardMatch(Path.GetFileName(blockedApp), r)))
-                    blocker.ReportBlockedApp(blockedApp, msg.User ?? state.CurrentUser);
+                if (blocker.IsAppBlocked(blockedApp)) blocker.ReportBlockedApp(blockedApp, msg.User ?? state.CurrentUser);
+                break;
+            case "accessRequest":
+                _ = Task.Run(() => AccessRequestAsync(client, msg));
+                break;
+            case "unlock" when msg.Token is { Length: > 0 } code:
+                _ = Task.Run(async () =>
+                {
+                    var (ok, text) = await blocker.TryUnlockAsync(code, msg.User ?? state.CurrentUser);
+                    await SendAsync(client, new PipeMessage { Type = "unlockResult", State = ok ? "ok" : "error", StatusText = text });
+                });
                 break;
             case "reenroll":
                 _ = Task.Run(() => ReenrollAsync(client, msg));
@@ -188,6 +197,30 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
         Type = "status", State = state.ConnectionState, StatusText = state.StatusDetail, Server = config.ServerUrl,
         LastUploadUtc = state.LastUploadUtc, QueueDepth = state.QueueDepth, AgentVersion = AgentInfo.Version
     };
+
+    /// <summary>Forwards an access request the user typed in the tray to the console.</summary>
+    private async Task AccessRequestAsync(Client client, PipeMessage msg)
+    {
+        string text; var ok = false;
+        var kind = msg.Title is "websites" or "apps" or "usb" ? msg.Title : "websites";
+        var value = msg.CurrentApp?.Trim() ?? "";
+        if (value.Length is 0 or > 300) text = "Enter the website or program you need.";
+        else
+        {
+            try
+            {
+                var ack = await server.PostAccessRequestAsync(new AccessRequestDto(kind, value, msg.Body, msg.User ?? state.CurrentUser), CancellationToken.None);
+                ok = true;
+                text = ack.Duplicate ? "You already asked for this. Your administrator will answer soon." : "Request sent. You will get a message when your administrator answers.";
+            }
+            catch (Exception ex)
+            {
+                log.LogDebug(ex, "Access request failed");
+                text = "The request could not be sent. Check that the computer is connected and try again.";
+            }
+        }
+        await SendAsync(client, new PipeMessage { Type = "accessRequestResult", State = ok ? "ok" : "error", StatusText = text });
+    }
 
     private readonly SemaphoreSlim _reenrollLock = new(1);
     private readonly ConcurrentQueue<DateTime> _reenrollAttempts = new();

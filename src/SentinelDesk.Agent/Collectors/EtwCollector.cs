@@ -98,7 +98,7 @@ public sealed class EtwCollector(TelemetryAggregator agg, PolicyStore policy, Ag
         {
             // 3006 = query issued, 3008 = query completed
             if ((int)e.ID != 3008) return;
-            if (blocker.UrlRules.Count > 0 && (e.PayloadByName("QueryName") as string) is { Length: > 0 } q)
+            if (blocker.WatchesDns && (e.PayloadByName("QueryName") as string) is { Length: > 0 } q)
                 blocker.OnDnsLookup(q.Trim().TrimEnd('.').ToLowerInvariant(), ResolveName(e.ProcessID, null));
             if (!policy.Current.Collectors.WebDomains || !policy.ActivityCollectionAllowed(DateTime.UtcNow)) return;
             var name = (e.PayloadByName("QueryName") as string)?.Trim().TrimEnd('.').ToLowerInvariant();

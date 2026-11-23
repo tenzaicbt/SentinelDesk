@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AppWindow, ArrowLeft, Ban, Building2, Copy, Globe, Monitor, Plus, Save, Target, Trash2, Usb, X } from 'lucide-react'
+import { AppWindow, ArrowLeft, Ban, Building2, Clock, Copy, Globe, Monitor, Plus, Save, Settings2, Target, Trash2, Usb, X } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ago } from '../lib/format'
@@ -10,7 +10,8 @@ import { Button, Callout, Card, cx, Empty, Field, Input, PageHeader, Segmented, 
 import type { DeviceRow, OrgUnit } from './Devices'
 import { confirmDialog } from '../components/dialog'
 import { KIND_ICON } from '../components/policyIcons'
-import { BLOCK_CATEGORIES, DEFAULT_BLOCK, KINDS, type BlockSettings, type PolicyRow, type Settings } from '../lib/policy'
+import { BLOCK_CATEGORIES, DAYS, DEFAULT_BLOCK, KINDS, NO_SCHEDULE, WORKING_HOURS, type BlockSchedule, type BlockSettings, type PolicyRow, type Settings } from '../lib/policy'
+import { DurationPicker, fmtUntil, untilFrom, type Duration } from '../components/blocking'
 
 export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>()
@@ -85,13 +86,8 @@ function PolicyEditor({ p, onCopy, onDeleted }: { p: PolicyRow; onCopy: () => vo
 
       {p.kind === 'websites' && <WebsitesSection b={b} setB={setB} ro={ro} />}
       {p.kind === 'apps' && <AppsSection b={b} setB={setB} ro={ro} />}
-      {p.kind === 'usb' && (
-        <Section icon={<Usb className="size-4" />} title="USB drives are blocked" text="On every computer this policy applies to.">
-          <p className="text-sm text-fg-2">Pen drives and external hard disks cannot be used. Mice, keyboards and printers still work.
-            A drive that is already plugged in keeps working until it is removed.</p>
-          <p className="mt-2 text-xs text-muted">To allow USB drives again, remove the computers below, or delete this policy.</p>
-        </Section>
-      )}
+      {p.kind === 'usb' && <UsbSection b={b} setB={setB} ro={ro} />}
+      <OptionsSection kind={p.kind} b={b} setB={setB} ro={ro} />
       <Assignments p={p} />
     </div>
   )
@@ -193,61 +189,238 @@ function ListInput({ values, onChange, disabled, placeholder, help }: { values: 
 
 type TargetType = 'all' | 'orgUnit' | 'device'
 
+/** Pick all computers, a branch/department or one computer. */
+function TargetPicker({ type, setType, target, setTarget, exclude, allowAll = true }: {
+  type: TargetType; setType: (t: TargetType) => void; target: string; setTarget: (t: string) => void; exclude: Set<string>; allowAll?: boolean
+}) {
+  const { data: org } = useQuery({ queryKey: ['org'], queryFn: () => api.get<OrgUnit[]>('/api/org') })
+  const { data: devices } = useQuery({ queryKey: ['devices', '', ''], queryFn: () => api.get<DeviceRow[]>('/api/devices') })
+  useEffect(() => setTarget(''), [type, setTarget])
+  return (
+    <>
+      <Segmented value={type} onChange={setType}
+        options={[...(allowAll ? [{ value: 'all' as const, label: 'All computers' }] : []), { value: 'orgUnit' as const, label: 'Branch or department' }, { value: 'device' as const, label: 'One computer' }]} />
+      {type !== 'all' && (
+        <Select value={target} onChange={(e) => setTarget(e.target.value)} className="min-w-56" aria-label="Choose computers">
+          <option value="">Choose…</option>
+          {type === 'orgUnit'
+            ? org?.filter((o) => o.type !== 'organization' && !exclude.has(o.id)).sort((a, b) => a.name.localeCompare(b.name)).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)
+            : devices?.filter((d) => !exclude.has(d.id)).map((d) => <option key={d.id} value={d.id}>{d.hostname}{d.user ? ` · ${d.user}` : ''}</option>)}
+        </Select>
+      )}
+    </>
+  )
+}
+
+function useRoot() {
+  const { data: org } = useQuery({ queryKey: ['org'], queryFn: () => api.get<OrgUnit[]>('/api/org') })
+  return org?.find((o) => o.type === 'organization')
+}
+
+function TargetChip({ icon, name, until, extra, onRemove }: { icon: 'device' | 'unit'; name: ReactNode; until?: string; extra?: ReactNode; onRemove?: () => void }) {
+  return (
+    <li className="inline-flex items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 py-1.5 text-sm">
+      {icon === 'device' ? <Monitor className="size-3.5 text-muted" /> : <Building2 className="size-3.5 text-muted" />}
+      {name}
+      {extra}
+      {until && <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-warning"><Clock className="size-3" />{fmtUntil(until)}</span>}
+      {onRemove && <button onClick={onRemove} aria-label="Remove"><X className="size-3.5 text-muted hover:text-critical" /></button>}
+    </li>
+  )
+}
+
 function Assignments({ p }: { p: PolicyRow }) {
   const { can } = useAuth()
   const qc = useQueryClient()
-  const { data: org } = useQuery({ queryKey: ['org'], queryFn: () => api.get<OrgUnit[]>('/api/org') })
-  const { data: devices } = useQuery({ queryKey: ['devices', '', ''], queryFn: () => api.get<DeviceRow[]>('/api/devices') })
+  const root = useRoot()
   const [type, setType] = useState<TargetType>('orgUnit')
   const [target, setTarget] = useState('')
-  useEffect(() => setTarget(''), [type])
-  const root = org?.find((o) => o.type === 'organization')
+  const [dur, setDur] = useState<Duration>('always')
+  const [date, setDate] = useState('')
   const already = new Set(p.assignments.map((a) => a.targetId))
   const onAll = !!root && already.has(root.id)
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['policies'] }); qc.invalidateQueries({ queryKey: ['org'] }) }
 
-  const assign = async (targetType: 'orgUnit' | 'device', targetId: string) => {
-    await api.post(`/api/policies/${p.id}/assign`, { targetType, targetId })
-    toast.success('Done. Those computers now have this policy.'); setTarget('')
-    qc.invalidateQueries({ queryKey: ['policies'] }); qc.invalidateQueries({ queryKey: ['org'] })
+  const assign = async () => {
+    const until = untilFrom(dur, date)
+    if (until === undefined) { toast.error('Choose a date in the future'); return }
+    const [targetType, targetId] = type === 'all' ? ['orgUnit', root?.id] : [type, target]
+    if (!targetId) return
+    try {
+      await api.post(`/api/policies/${p.id}/assign`, { targetType, targetId, untilUtc: until })
+      toast.success(until ? `Applied ${fmtUntil(until)}.` : 'Done. Those computers now have this policy.')
+      setTarget(''); refresh()
+    } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Failed') }
   }
-  const unassign = async (id: string) => {
-    await api.del(`/api/policies/assignments/${id}`)
-    qc.invalidateQueries({ queryKey: ['policies'] }); qc.invalidateQueries({ queryKey: ['org'] })
-  }
+  const unassign = async (id: string) => { await api.del(`/api/policies/assignments/${id}`); refresh() }
 
   return (
     <Section icon={<Target className="size-4" />} title="Which computers"
-      text="Apply it to all computers, a branch or department, or single computers. A computer can have several policies: all of them apply.">
+      text="Apply it to all computers, a branch or department, or single computers, always or for a while. A computer can have several policies: all of them apply.">
       {p.assignments.length === 0 ? (
         <Callout tone="warning">Not applied to any computer yet, so it does nothing. Choose computers below.</Callout>
       ) : (
         <ul className="flex flex-wrap gap-2">
           {p.assignments.map((a) => (
-            <li key={a.id} className="inline-flex items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 py-1.5 text-sm">
-              {a.targetType === 'device' ? <Monitor className="size-3.5 text-muted" /> : <Building2 className="size-3.5 text-muted" />}
-              {root && a.targetId === root.id ? <b>All computers</b> : (a.name ?? a.targetId)}
-              {can.super && <button onClick={() => unassign(a.id)} aria-label={`Remove ${a.name ?? ''}`}><X className="size-3.5 text-muted hover:text-critical" /></button>}
-            </li>
+            <TargetChip key={a.id} icon={a.targetType === 'device' ? 'device' : 'unit'} until={a.untilUtc}
+              name={root && a.targetId === root.id ? <b>All computers</b> : (a.name ?? a.targetId)}
+              onRemove={can.super ? () => unassign(a.id) : undefined} />
           ))}
         </ul>
       )}
       {can.super && (
-        <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-line pt-4">
-          <Segmented value={type} onChange={setType}
-            options={[{ value: 'all', label: 'All computers' }, { value: 'orgUnit', label: 'Branch or department' }, { value: 'device', label: 'One computer' }]} />
-          {type === 'all' ? (
-            <Button variant="primary" disabled={!root || onAll} onClick={() => root && assign('orgUnit', root.id)}>{onAll ? 'Already on all computers' : 'Apply to all computers'}</Button>
-          ) : (
-            <>
-              <Select value={target} onChange={(e) => setTarget(e.target.value)} className="min-w-56" aria-label="Choose where to apply">
-                <option value="">Choose…</option>
-                {type === 'orgUnit'
-                  ? org?.filter((o) => o.type !== 'organization' && !already.has(o.id)).sort((a, b) => a.name.localeCompare(b.name)).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)
-                  : devices?.filter((d) => !already.has(d.id)).map((d) => <option key={d.id} value={d.id}>{d.hostname}{d.user ? ` · ${d.user}` : ''}</option>)}
-              </Select>
-              <Button variant="primary" disabled={!target} onClick={() => assign(type, target)}>Apply</Button>
-            </>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+          <TargetPicker type={type} setType={setType} target={target} setTarget={setTarget} exclude={already} />
+          <DurationPicker value={dur} onChange={setDur} date={date} onDate={setDate} />
+          <Button variant="primary" disabled={type === 'all' ? !root || onAll : !target} onClick={assign}>
+            {type === 'all' && onAll ? 'Already on all computers' : 'Apply'}
+          </Button>
+        </div>
+      )}
+      <Exceptions p={p} />
+    </Section>
+  )
+}
+
+/** Computers or branches where this policy does not apply (always or for a while), and approved access requests. */
+function Exceptions({ p }: { p: PolicyRow }) {
+  const { can } = useAuth()
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [type, setType] = useState<TargetType>('device')
+  const [target, setTarget] = useState('')
+  const [dur, setDur] = useState<Duration>('always')
+  const [date, setDate] = useState('')
+  const [value, setValue] = useState('')
+  const list = p.exceptions ?? []
+  const refresh = () => qc.invalidateQueries({ queryKey: ['policies'] })
+
+  const add = async () => {
+    const until = untilFrom(dur, date)
+    if (until === undefined) { toast.error('Choose a date in the future'); return }
+    try {
+      await api.post(`/api/policies/${p.id}/exceptions`, { targetType: type, targetId: target, untilUtc: until, value: value.trim() || null })
+      toast.success('Exception added. Those computers are updated within seconds.')
+      setTarget(''); setValue(''); setOpen(false); refresh()
+    } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Failed') }
+  }
+  const remove = async (id: string) => { await api.del(`/api/policies/exceptions/${id}`); refresh() }
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Exceptions</h3>
+          <p className="text-xs text-muted">Computers or branches where this policy does not apply, for example one manager's PC, or a temporary unblock.</p>
+        </div>
+        {can.super && !open && <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>Add exception</Button>}
+      </div>
+      {list.length > 0 && (
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {list.map((x) => (
+            <TargetChip key={x.id} icon={x.targetType === 'device' ? 'device' : 'unit'} until={x.untilUtc} name={x.name ?? x.targetId}
+              extra={<span className="text-xs text-muted">{x.value ? <>allows <b className="font-mono text-fg-2">{x.value}</b></> : 'not blocked'}{x.global ? ' (approved request)' : ''}</span>}
+              onRemove={can.super ? () => remove(x.id) : undefined} />
+          ))}
+        </ul>
+      )}
+      {open && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line p-3">
+          <TargetPicker type={type} setType={setType} target={target} setTarget={setTarget} exclude={new Set()} allowAll={false} />
+          {p.kind !== 'usb' && (
+            <Input className="w-56" value={value} onChange={(e) => setValue(e.target.value)}
+              placeholder={p.kind === 'websites' ? 'Only this site (optional)' : 'Only this program (optional)'} aria-label="Only this item" />
           )}
+          <DurationPicker value={dur} onChange={setDur} date={date} onDate={setDate} />
+          <Button variant="primary" disabled={!target} onClick={add}>Add</Button>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ───────────── options: what happens, when, who ─────────────
+
+function OptionsSection({ kind, b, setB, ro }: { kind: PolicyRow['kind']; b: BlockSettings; setB: (patch: Partial<BlockSettings>) => void; ro: boolean }) {
+  const sch = b.schedule ?? NO_SCHEDULE
+  const users = b.users ?? []
+  const setSch = (patch: Partial<BlockSchedule>) => setB({ schedule: { ...sch, ...patch } })
+  return (
+    <Section icon={<Settings2 className="size-4" />} title="Options" text="By default the policy blocks, all the time, for everyone.">
+      <div className="grid gap-5 lg:grid-cols-3">
+        {kind !== 'usb' ? (
+          <Field label="What happens">
+            <Segmented value={b.mode ?? 'block'} onChange={(v) => !ro && setB({ mode: v })}
+              options={[{ value: 'block', label: 'Block' }, { value: 'warn', label: 'Warn' }, { value: 'log', label: 'Log only' }]} />
+            <p className="mt-1.5 text-xs text-muted">
+              {b.mode === 'warn' ? 'Allowed, but the user sees a warning and it is recorded.'
+                : b.mode === 'log' ? 'Allowed and recorded only. Use it to see the effect before blocking.'
+                : 'Stopped, and the attempt is recorded.'}
+            </p>
+          </Field>
+        ) : (
+          <Field label="USB drives">
+            <Segmented value={b.usbMode ?? 'block'} onChange={(v) => !ro && setB({ usbMode: v })}
+              options={[{ value: 'block', label: 'Block' }, { value: 'readOnly', label: 'Read-only' }]} />
+            <p className="mt-1.5 text-xs text-muted">{b.usbMode === 'readOnly' ? 'Files can be opened but nothing can be copied to a drive.' : 'Drives cannot be used. Drives already plugged in are switched off.'}</p>
+          </Field>
+        )}
+        <Field label="When">
+          <Segmented value={sch.enabled ? 'times' : 'always'} onChange={(v) => !ro && setB({ schedule: v === 'always' ? { ...sch, enabled: false } : { ...WORKING_HOURS, ...sch, enabled: true } })}
+            options={[{ value: 'always', label: 'Always' }, { value: 'times', label: 'Only at set times' }]} />
+          {sch.enabled && (
+            <div className="mt-2 space-y-2">
+              <div className="flex flex-wrap gap-1">
+                {DAYS.map((d) => {
+                  const on = sch.days.includes(d)
+                  return <button key={d} type="button" disabled={ro} aria-pressed={on} onClick={() => setSch({ days: on ? sch.days.filter((x) => x !== d) : DAYS.filter((x) => x === d || sch.days.includes(x)) })}
+                    className={cx('rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset', on ? 'bg-brand-soft text-brand-ink ring-brand/40' : 'text-muted ring-line')}>{d}</button>
+                })}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted">
+                from <Input type="time" disabled={ro} className="w-28" value={sch.start} onChange={(e) => setSch({ start: e.target.value })} />
+                to <Input type="time" disabled={ro} className="w-28" value={sch.end} onChange={(e) => setSch({ end: e.target.value })} />
+              </div>
+              {!ro && <button type="button" className="text-xs text-brand-ink hover:underline" onClick={() => setB({ schedule: WORKING_HOURS })}>Working hours (Mon–Fri 08:30–17:00)</button>}
+            </div>
+          )}
+        </Field>
+        <Field label="Who">
+          <Segmented value={users.length ? 'some' : 'all'} onChange={(v) => !ro && v === 'all' && setB({ users: [] })}
+            options={[{ value: 'all', label: 'Everyone' }, { value: 'some', label: 'Only some users' }]} />
+          <div className="mt-2">
+            <ListInput values={users} disabled={ro} onChange={(u) => setB({ users: u })} placeholder="User or group, e.g. Cashiers"
+              help={<>A user name (<code>nimal</code>, <code>OFFICE\nimal</code>) or a Windows group (<code>Cashiers</code>). Empty = everyone.</>} />
+          </div>
+        </Field>
+      </div>
+    </Section>
+  )
+}
+
+// ───────────── USB: read-only and allowed drives ─────────────
+
+function UsbSection({ b, setB, ro }: { b: BlockSettings; setB: (patch: Partial<BlockSettings>) => void; ro: boolean }) {
+  const allow = b.usbAllowSerials ?? []
+  const { data: recent } = useQuery({ queryKey: ['usb-recent'], queryFn: () => api.get<{ serial: string; model: string; lastHost: string; lastSeen: string }[]>('/api/usb/recent-drives') })
+  const add = (serial: string) => !allow.includes(serial) && setB({ usbAllowSerials: [...allow, serial] })
+  return (
+    <Section icon={<Usb className="size-4" />} title="Allowed drives" text="Company-issued drives that always work, even where USB drives are blocked. Mice, keyboards and printers are never blocked.">
+      <ListInput values={allow} disabled={ro} onChange={(v) => setB({ usbAllowSerials: v.map((x) => x.toUpperCase()) })} placeholder="Drive serial number, e.g. 0701ABCD1234"
+        help="Find the serial on the computer's page (USB events), or pick a drive seen recently below." />
+      {!ro && recent && recent.filter((r) => !allow.includes(r.serial)).length > 0 && (
+        <div className="mt-4 border-t border-line pt-3">
+          <p className="mb-2 text-xs font-medium text-fg-2">Drives seen in the last 30 days</p>
+          <ul className="space-y-1">
+            {recent.filter((r) => !allow.includes(r.serial)).slice(0, 8).map((r) => (
+              <li key={r.serial} className="flex items-center gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">{r.model || 'USB drive'} <span className="font-mono text-xs text-muted">{r.serial}</span></span>
+                <span className="text-xs text-muted">{r.lastHost} · {ago(r.lastSeen)}</span>
+                <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => add(r.serial)}>Allow</Button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </Section>

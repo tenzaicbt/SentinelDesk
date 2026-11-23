@@ -71,6 +71,11 @@ public sealed class ServerClient : IDisposable
     public Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest hb, CancellationToken ct) => PostAsync<HeartbeatRequest, HeartbeatResponse>("agent/v1/heartbeat", hb, ct);
     public Task<UploadAck> UploadAsync(TelemetryBatch batch, CancellationToken ct) => PostAsync<TelemetryBatch, UploadAck>("agent/v1/telemetry", batch, ct);
 
+    public Task<AccessRequestAck> PostAccessRequestAsync(AccessRequestDto request, CancellationToken ct) =>
+        PostAsync<AccessRequestDto, AccessRequestAck>("agent/v1/access-requests", request, ct);
+
+    public sealed record AccessRequestAck(bool Duplicate);
+
     public async Task<SignedPolicy> GetPolicyAsync(CancellationToken ct)
     {
         using var res = await Send(() => Http.GetAsync("agent/v1/policy", ct));

@@ -17,6 +17,7 @@ import {
 import { ActivityBars, Legend, Lines, RankBars, S, Sparkline, UsageBars } from '../components/charts'
 import { MessageModal, type OrgUnit } from './Devices'
 import { confirmDialog } from '../components/dialog'
+import { UnlockCodeDialog } from '../components/blocking'
 import { DeviceLocation, type LocationInfo } from '../components/DeviceLocation'
 import { useTheme } from '../components/Layout'
 
@@ -160,6 +161,7 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
   const [msg, setMsg] = useState(false)
   const [move, setMove] = useState(false)
   const [code, setCode] = useState<{ code: string; expiresUtc: string } | null>(null)
+  const [unlock, setUnlock] = useState(false)
   const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Request failed - check that the server is running')
   const offlineNote = `${d.hostname} is offline (last seen ${ago(d.lastSeenAt)}). It will run when the device next checks in.`
   const cmd = async (type: string, payload?: string) => {
@@ -198,6 +200,7 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
           <div className="absolute right-0 top-9 z-20 w-60 rounded-lg border border-line bg-panel p-1 shadow-md animate-rise" onMouseLeave={() => setMenu(false)}>
             <MenuItem icon={<ListTree className="size-4" />} onClick={() => { setMove(true); setMenu(false) }}>Move to branch…</MenuItem>
             <MenuItem icon={<KeyRound className="size-4" />} onClick={uninstallCode}>Generate one-time uninstall code</MenuItem>
+            <MenuItem icon={<KeyRound className="size-4" />} onClick={() => { setMenu(false); setUnlock(true) }}>Create unlock code (pause blocking, works offline)</MenuItem>
             {d.status === 'active'
               ? <MenuItem icon={<Ban className="size-4" />} onClick={() => state('disable', { title: `Disable ${d.hostname}?`, message: 'The device will stop being able to upload data until it is re-enabled.', label: 'Disable device' })}>Disable device</MenuItem>
               : d.status === 'disabled' && <MenuItem icon={<CheckCircle2 className="size-4" />} onClick={() => state('enable')}>Re-enable device</MenuItem>}
@@ -239,6 +242,7 @@ function DeviceActions({ d, online }: { d: Device; online: boolean }) {
       </div>
       <MessageModal open={msg} onClose={() => setMsg(false)} count={1} onSend={async (t, b) => cmd('showMessage', JSON.stringify({ title: t, body: b }))} />
       <MoveModal open={move} onClose={() => setMove(false)} d={d} />
+      <UnlockCodeDialog deviceId={d.id} hostname={d.hostname} open={unlock} onClose={() => setUnlock(false)} />
       <Modal open={!!code} onClose={() => setCode(null)} title="One-time uninstall code" footer={<Button variant="primary" onClick={() => setCode(null)}>Done</Button>}>
         <div className="space-y-3 text-sm">
           <p className="text-fg-2">Give this code to the on-site technician. It works only on <b>{d.hostname}</b>, together with local administrator rights, until {dateTime(code?.expiresUtc)}.</p>

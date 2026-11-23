@@ -260,7 +260,75 @@ public sealed class BlockSettings
     /// <summary>Show a tray notification when an application is blocked.</summary>
     public bool NotifyUser { get; set; } = true;
     public string Message { get; set; } = "This application is blocked by your organisation's policy.";
+
+    // ── options of a block policy (set in the console) ──
+    /// <summary>block = stop it · warn = allow, tell the user and record it · log = allow and record it.</summary>
+    public string Mode { get; set; } = BlockModes.Block;
+    /// <summary>When the policy is active. Disabled = always.</summary>
+    public BlockSchedule Schedule { get; set; } = new();
+    /// <summary>Only for these users or groups ("DOMAIN\user", "user", "Group"). Empty = everyone.</summary>
+    public List<string> Users { get; set; } = [];
+    /// <summary>USB policies: block = no drives · readOnly = drives can be read but not written.</summary>
+    public string UsbMode { get; set; } = "block";
+    /// <summary>USB policies: drives (serial numbers) that are always allowed.</summary>
+    public List<string> UsbAllowSerials { get; set; } = [];
+
+    // ── filled by the server for each device (the agent evaluates them locally, also when offline) ──
+    public List<BlockRuleSet> Sets { get; set; } = [];
+    public List<BlockException> Exceptions { get; set; } = [];
 }
+
+public static class BlockModes
+{
+    public const string Block = "block", Warn = "warn", Log = "log";
+    public static readonly string[] All = [Block, Warn, Log];
+}
+
+/// <summary>Days and times a block policy is active (local time of the device's working-hours time zone).</summary>
+public sealed class BlockSchedule
+{
+    public bool Enabled { get; set; }
+    /// <summary>"Mon".."Sun"</summary>
+    public List<string> Days { get; set; } = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    public string Start { get; set; } = "08:30";
+    public string End { get; set; } = "17:00";
+}
+
+/// <summary>One block policy as delivered to a device.</summary>
+public sealed class BlockRuleSet
+{
+    public string PolicyId { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>websites | apps | usb</summary>
+    public string Kind { get; set; } = "";
+    public List<string> Urls { get; set; } = [];
+    public List<string> Categories { get; set; } = [];
+    public List<string> Apps { get; set; } = [];
+    public string Mode { get; set; } = BlockModes.Block;
+    public BlockSchedule Schedule { get; set; } = new();
+    public List<string> Users { get; set; } = [];
+    /// <summary>Temporary block: stops applying at this time (server time). Null = until removed.</summary>
+    public DateTime? ExpiresUtc { get; set; }
+    public bool NotifyUser { get; set; } = true;
+    public string Message { get; set; } = "";
+    public string UsbMode { get; set; } = "block";
+    public List<string> UsbAllowSerials { get; set; } = [];
+}
+
+/// <summary>Something that is not blocked on a device despite a policy (exception, approved request, temporary unblock).</summary>
+public sealed class BlockException
+{
+    /// <summary>Null = any policy.</summary>
+    public string? PolicyId { get; set; }
+    /// <summary>websites | apps | usb | all</summary>
+    public string Kind { get; set; } = "all";
+    /// <summary>A website or program; null = everything in the policy.</summary>
+    public string? Value { get; set; }
+    public DateTime? ExpiresUtc { get; set; }
+    public string? Reason { get; set; }
+}
+
+public sealed record AccessRequestDto(string Kind, string Value, string? Reason, string? User);
 
 public sealed class CollectorSettings
 {

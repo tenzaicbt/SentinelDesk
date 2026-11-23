@@ -216,6 +216,7 @@ public static class Seeder
             ("Devices", "LocSource", "TEXT NULL"),
             ("Devices", "LocError", "TEXT NULL"),
             ("Policies", "Kind", "TEXT NOT NULL DEFAULT 'monitoring'"),
+            ("PolicyAssignments", "UntilUtc", "TEXT NULL"),
         ];
         var added = new HashSet<string>();
         var conn = db.Database.GetDbConnection();
@@ -227,6 +228,19 @@ public static class Seeder
                 "DeviceId" TEXT NOT NULL, "Time" TEXT NOT NULL, "Lat" REAL NOT NULL, "Lng" REAL NOT NULL,
                 "AccuracyM" REAL NOT NULL, "Source" TEXT NULL);
             CREATE INDEX IF NOT EXISTS "IX_Locations_DeviceId_Time" ON "Locations" ("DeviceId", "Time");
+            CREATE TABLE IF NOT EXISTS "BlockExceptions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_BlockExceptions" PRIMARY KEY, "PolicyId" TEXT NULL, "Kind" TEXT NOT NULL,
+                "Value" TEXT NULL, "TargetType" TEXT NOT NULL, "TargetId" TEXT NOT NULL, "UntilUtc" TEXT NULL, "Reason" TEXT NULL,
+                "AccessRequestId" TEXT NULL, "CreatedBy" TEXT NULL, "CreatedAt" TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS "IX_BlockExceptions_TargetType_TargetId" ON "BlockExceptions" ("TargetType", "TargetId");
+            CREATE TABLE IF NOT EXISTS "AccessRequests" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AccessRequests" PRIMARY KEY, "DeviceId" TEXT NOT NULL, "User" TEXT NULL,
+                "Kind" TEXT NOT NULL, "Value" TEXT NOT NULL, "Reason" TEXT NULL, "Status" TEXT NOT NULL, "CreatedAt" TEXT NOT NULL,
+                "DecidedBy" TEXT NULL, "DecidedAt" TEXT NULL, "GrantUntilUtc" TEXT NULL);
+            CREATE INDEX IF NOT EXISTS "IX_AccessRequests_Status_CreatedAt" ON "AccessRequests" ("Status", "CreatedAt");
+            CREATE TABLE IF NOT EXISTS "EmergencyUnblocks" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_EmergencyUnblocks" PRIMARY KEY, "OrgUnitId" TEXT NULL, "UntilUtc" TEXT NULL,
+                "Reason" TEXT NULL, "CreatedBy" TEXT NULL, "CreatedAt" TEXT NOT NULL, "EndedAt" TEXT NULL, "EndedBy" TEXT NULL);
             """);
         foreach (var (table, column, ddl) in columns)
         {

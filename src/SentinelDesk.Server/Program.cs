@@ -179,6 +179,7 @@ app.MapAuthApi();
 app.MapDashboardApi();
 app.MapDeviceApi();
 app.MapManagementApi();
+app.MapBlockingApi();
 app.MapReportApi();
 app.MapHub<ConsoleHub>("/hubs/console");
 app.MapHub<AgentHub>("/hubs/agent");

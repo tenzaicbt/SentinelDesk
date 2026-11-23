@@ -136,6 +136,23 @@ public static partial class BlockRules
         if (apps.Count > MaxApps) errors.Add($"At most {MaxApps} blocked applications");
         if (urls.Count > MaxUrls) errors.Add($"At most {MaxUrls} blocked websites");
         b.Apps = apps; b.Urls = urls; b.Categories = cats;
+
+        // options
+        if (!BlockModes.All.Contains(b.Mode)) b.Mode = BlockModes.Block;
+        b.UsbMode = b.UsbMode == "readOnly" ? "readOnly" : "block";
+        b.Users = [.. b.Users.Select(u => u.Trim()).Where(u => u.Length is > 0 and <= 120).Distinct(StringComparer.OrdinalIgnoreCase).Take(100)];
+        b.UsbAllowSerials = [.. b.UsbAllowSerials.Select(x => x.Trim().ToUpperInvariant()).Where(x => x.Length is >= 4 and <= 64).Distinct().Take(500)];
+        b.Schedule ??= new BlockSchedule();
+        string[] days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        b.Schedule.Days = [.. days.Where(d => b.Schedule.Days.Any(x => x.StartsWith(d, StringComparison.OrdinalIgnoreCase)))];
+        if (b.Schedule.Enabled)
+        {
+            if (b.Schedule.Days.Count == 0) errors.Add("Choose at least one day for the schedule");
+            if (!TimeOnly.TryParse(b.Schedule.Start, out _) || !TimeOnly.TryParse(b.Schedule.End, out _)) errors.Add("The schedule times are not valid (use 08:30)");
+            else if (b.Schedule.Start == b.Schedule.End) errors.Add("The schedule start and end time are the same");
+        }
+        // delivered fields are computed by the server, never taken from the console
+        b.Sets = []; b.Exceptions = [];
         b.Message = string.IsNullOrWhiteSpace(b.Message) ? new BlockSettings().Message : b.Message.Trim()[..Math.Min(300, b.Message.Trim().Length)];
         return errors;
     }

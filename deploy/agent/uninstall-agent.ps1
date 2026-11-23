@@ -58,6 +58,16 @@ function Remove-SentinelDeskBlocks {
                 foreach ($n in $item.GetValueNames()) { Remove-ItemProperty $path -Name $n -ErrorAction SilentlyContinue }
                 for ($i = 0; $i -lt $keep.Count; $i++) { New-ItemProperty $path -Name ($i + 1) -Value $keep[$i] -PropertyType String -Force | Out-Null }
             }
+            # USB storage: switch drives back on, restore the storage drivers and remove read-only mode
+            foreach ($id in @($st.usbDisabled)) { if ($id) { & { $ErrorActionPreference = 'Continue'; pnputil.exe /enable-device "$id" 2>&1 | Out-Null } } }
+            foreach ($p in $st.usbStartPrevious.PSObject.Properties) {
+                $reg = "HKLM:\SYSTEM\CurrentControlSet\Services\$($p.Name)"
+                if (Test-Path $reg) { Set-ItemProperty $reg -Name Start -Value $(if ([int]$p.Value -eq 4) { 3 } else { [int]$p.Value }) -Type DWord }
+            }
+            if ($st.usbDenyWrite) {
+                Remove-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}' -Name Deny_Write -ErrorAction SilentlyContinue
+            }
+            if (@($st.usbDisabled).Count -gt 0) { & { $ErrorActionPreference = 'Continue'; pnputil.exe /scan-devices 2>&1 | Out-Null } }
             # browsers' secure DNS: restore the values that were there before the agent turned it off
             foreach ($p in $st.dnsPrevious.PSObject.Properties) {
                 $path, $name = $p.Name -split '\|', 2

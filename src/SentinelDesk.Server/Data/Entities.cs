@@ -119,6 +119,60 @@ public sealed class PolicyAssignment
     /// <summary>orgUnit | device</summary>
     [MaxLength(20)] public string TargetType { get; set; } = "orgUnit";
     public Guid TargetId { get; set; }
+    /// <summary>Temporary block: the assignment stops applying at this time. Null = until removed.</summary>
+    public DateTime? UntilUtc { get; set; }
+}
+
+/// <summary>
+/// Something not blocked for a target despite a block policy: an exception for a computer or branch, a temporary
+/// unblock, or an approved access request. A null policy means any policy; a null value means the whole policy.
+/// </summary>
+public sealed class BlockExceptionRow
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? PolicyId { get; set; }
+    /// <summary>websites | apps | usb | all</summary>
+    [MaxLength(20)] public string Kind { get; set; } = "all";
+    [MaxLength(300)] public string? Value { get; set; }
+    [MaxLength(20)] public string TargetType { get; set; } = "device";
+    public Guid TargetId { get; set; }
+    public DateTime? UntilUtc { get; set; }
+    [MaxLength(300)] public string? Reason { get; set; }
+    public Guid? AccessRequestId { get; set; }
+    [MaxLength(80)] public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>A user asked (from the tray) to use a blocked website or application.</summary>
+public sealed class AccessRequest
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid DeviceId { get; set; }
+    [MaxLength(120)] public string? User { get; set; }
+    /// <summary>websites | apps | usb</summary>
+    [MaxLength(20)] public string Kind { get; set; } = "websites";
+    [MaxLength(300)] public string Value { get; set; } = "";
+    [MaxLength(500)] public string? Reason { get; set; }
+    /// <summary>pending | approved | rejected</summary>
+    [MaxLength(12)] public string Status { get; set; } = "pending";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    [MaxLength(80)] public string? DecidedBy { get; set; }
+    public DateTime? DecidedAt { get; set; }
+    public DateTime? GrantUntilUtc { get; set; }
+}
+
+/// <summary>Emergency "Unblock all": no block policy applies in the scope while it is active.</summary>
+public sealed class EmergencyUnblock
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>Null = the whole organization.</summary>
+    public Guid? OrgUnitId { get; set; }
+    public DateTime? UntilUtc { get; set; }
+    [MaxLength(300)] public string? Reason { get; set; }
+    [MaxLength(80)] public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? EndedAt { get; set; }
+    [MaxLength(80)] public string? EndedBy { get; set; }
 }
 
 public sealed class AlertRule

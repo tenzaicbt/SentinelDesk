@@ -51,8 +51,11 @@ static class Program
         try
         {
             ApplicationConfiguration.Initialize();
-            MessageBox.Show($"{exe} is blocked by your organisation's policy.\n\nContact your support team if you need it for your work.",
-                "SentinelDesk — Application blocked", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+            var answer = MessageBox.Show($"{exe} is blocked by your organisation's policy.\n\nDo you need it for your work? Choose Yes to ask your administrator for access.",
+                "SentinelDesk — Application blocked", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2);
+            pipe?.Dispose();
+            pipe = null;
+            if (answer == DialogResult.Yes) Application.Run(new RequestAccessForm("apps", exe));
         }
         finally { pipe?.Dispose(); }
     }

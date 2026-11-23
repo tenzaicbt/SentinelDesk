@@ -50,8 +50,6 @@ public sealed class UsbCollector(TelemetryAggregator agg, PolicyStore policy, Ag
 
     protected override Task ExecuteAsync(CancellationToken ct)
     {
-        ApplyBlock(policy.Current);
-        policy.Changed += ApplyBlock;
         try
         {
             _watcher = new ManagementEventWatcher(new WqlEventQuery("SELECT * FROM Win32_VolumeChangeEvent WHERE EventType = 2 OR EventType = 3"));
@@ -91,23 +89,5 @@ public sealed class UsbCollector(TelemetryAggregator agg, PolicyStore policy, Ag
         {
             agg.AddEvent(new AgentEvent(DateTime.UtcNow, "usb.removed", "info", $"Removable volume {drive} removed"));
         }
-    }
-
-    private void ApplyBlock(AgentPolicy p)
-    {
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\USBSTOR", writable: true);
-            if (key is null) return;
-            var current = key.GetValue("Start") as int? ?? 3;
-            var desired = p.Collectors.UsbBlock ? 4 : 3;
-            if (current == desired) return;
-            key.SetValue("Start", desired, RegistryValueKind.DWord);
-            agg.AddEvent(new AgentEvent(DateTime.UtcNow, p.Collectors.UsbBlock ? "usb.blockEnabled" : "usb.blockDisabled", "info",
-                p.Collectors.UsbBlock ? "USB mass storage blocked by policy" : "USB mass storage allowed by policy"));
-            log.LogInformation("USB storage {State}", p.Collectors.UsbBlock ? "blocked" : "allowed");
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException) { log.LogDebug("No permission to change USBSTOR (not running as SYSTEM)"); }
-        catch (Exception ex) { log.LogWarning(ex, "Failed to apply USB policy"); }
     }
 }

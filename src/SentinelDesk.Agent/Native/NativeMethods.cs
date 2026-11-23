@@ -90,6 +90,25 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool OpenProcessToken(IntPtr process, uint desiredAccess, out IntPtr token);
 
+    /// <summary>The user signed in to a session and their group names ("DOMAIN\Group"). Needs SYSTEM.</summary>
+    public static List<string> SessionGroupNames(int sessionId)
+    {
+        var names = new List<string>();
+        if (sessionId < 0 || !WTSQueryUserToken(sessionId, out var token)) return names;
+        try
+        {
+            using var id = new System.Security.Principal.WindowsIdentity(token);
+            if (id.Name is { Length: > 0 } n) names.Add(n);
+            foreach (var g in id.Groups ?? new System.Security.Principal.IdentityReferenceCollection())
+            {
+                try { if (g.Translate(typeof(System.Security.Principal.NTAccount)) is { } a) names.Add(a.Value); }
+                catch { /* unresolvable SID */ }
+            }
+        }
+        finally { CloseHandle(token); }
+        return names;
+    }
+
     /// <summary>True when the process runs elevated as a member of Administrators (a UAC-filtered token is not).</summary>
     public static bool IsElevatedAdministrator(int pid)
     {

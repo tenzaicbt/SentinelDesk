@@ -12,7 +12,7 @@ public static class ManagementEndpoints
 {
     public sealed record OrgUnitRequest(string Name, string Type, Guid? ParentId, double? Lat, double? Lng);
     public sealed record PolicyRequest(string Name, string? Description, AgentPolicy Settings, string? Kind = null);
-    public sealed record AssignRequest(string TargetType, Guid TargetId);
+    public sealed record AssignRequest(string TargetType, Guid TargetId, DateTime? UntilUtc = null);
     public sealed record RuleRequest(string Name, string Type, double Threshold, string? Parameter, string Severity, bool Enabled, bool NotifyEmail, bool NotifyWebhook);
     public sealed record TokenRequest(string Name, Guid? OrgUnitId, int Days, int Uses, bool AutoApprove);
     public sealed record InstallerRequest(string? Name, Guid? OrgUnitId, int Days, int Uses, bool AutoApprove, string ServerUrl, string UninstallKey, bool TrustOnFirstUse, string? ServerCertSha256);
@@ -97,8 +97,10 @@ public static class ManagementEndpoints
         {
             PolicyKinds.Websites => new BlockSettings { Urls = b.Urls, Categories = b.Categories },
             PolicyKinds.Apps => new BlockSettings { Apps = b.Apps, NotifyUser = b.NotifyUser, Message = b.Message },
-            _ => new BlockSettings(),
+            _ => new BlockSettings { UsbMode = b.UsbMode, UsbAllowSerials = b.UsbAllowSerials },
         };
+        // options shared by every kind
+        s.Block.Mode = b.Mode; s.Block.Schedule = b.Schedule; s.Block.Users = b.Users;
         s.Collectors.UsbBlock = kind == PolicyKinds.Usb;
     }
 
@@ -117,7 +119,9 @@ public static class ManagementEndpoints
         {
             // the console manages block policies only; the Default (monitoring) policy is the hidden base of every device
             var policies = await db.Policies.AsNoTracking().Where(p => p.Kind != PolicyKinds.Monitoring).OrderBy(p => p.Name).ToListAsync();
-            var assignments = await db.PolicyAssignments.AsNoTracking().ToListAsync();
+            var now = DateTime.UtcNow;
+            var assignments = (await db.PolicyAssignments.AsNoTracking().ToListAsync()).Where(a => a.UntilUtc is null || a.UntilUtc > now).ToList();
+            var exceptions = (await db.BlockExceptions.AsNoTracking().ToListAsync()).Where(e => e.UntilUtc is null || e.UntilUtc > now).ToList();
             var units = await db.OrgUnits.AsNoTracking().ToDictionaryAsync(o => o.Id, o => o.Name);
             var devices = await db.Devices.AsNoTracking().ToDictionaryAsync(d => d.Id, d => d.Hostname);
             return Results.Ok(policies.Select(p => new
@@ -126,8 +130,13 @@ public static class ManagementEndpoints
                 Settings = Json.Deserialize<AgentPolicy>(p.Json),
                 Assignments = assignments.Where(a => a.PolicyId == p.Id).Select(a => new
                 {
-                    a.Id, a.TargetType, a.TargetId,
+                    a.Id, a.TargetType, a.TargetId, a.UntilUtc,
                     Name = a.TargetType == "device" ? devices.GetValueOrDefault(a.TargetId) : units.GetValueOrDefault(a.TargetId)
+                }),
+                Exceptions = exceptions.Where(e => e.PolicyId == p.Id || (e.PolicyId == null && (e.Kind == p.Kind || e.Kind == "all"))).Select(e => new
+                {
+                    e.Id, e.TargetType, e.TargetId, e.Value, e.UntilUtc, e.Reason, e.CreatedBy, Global = e.PolicyId == null,
+                    Name = e.TargetType == "device" ? devices.GetValueOrDefault(e.TargetId) : units.GetValueOrDefault(e.TargetId)
                 })
             }));
         }).RequireAuthorization("Console");
@@ -190,8 +199,9 @@ public static class ManagementEndpoints
             // a target has one monitoring policy (replaced) but can have any number of restriction policies (added)
             if (!PolicyKinds.IsRestriction(policy.Kind)) return Results.Problem("Only block policies can be applied", statusCode: 400);
             // a computer can have any number of block policies; only avoid adding the same one twice
+            if (r.UntilUtc is { } until && until <= DateTime.UtcNow) return Results.Problem("The end time is in the past", statusCode: 400);
             await db.PolicyAssignments.Where(a => a.TargetType == r.TargetType && a.TargetId == r.TargetId && a.PolicyId == id).ExecuteDeleteAsync();
-            db.PolicyAssignments.Add(new PolicyAssignment { PolicyId = id, TargetType = r.TargetType, TargetId = r.TargetId });
+            db.PolicyAssignments.Add(new PolicyAssignment { PolicyId = id, TargetType = r.TargetType, TargetId = r.TargetId, UntilUtc = r.UntilUtc });
             await db.SaveChangesAsync();
             await audit.LogAsync("policy.assign", id.ToString(), $"{r.TargetType}:{r.TargetId}");
             await commands.BroadcastPolicyChangedAsync(presence.All.Select(x => x.DeviceId));

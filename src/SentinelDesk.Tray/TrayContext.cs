@@ -37,6 +37,8 @@ public sealed class TrayContext : ApplicationContext
             $"SentinelDesk Endpoint Agent {AgentVersion ?? "1.0.0"}\nDevice ID: {DeviceId ?? "not enrolled"}\n\nThis agent is managed by your organisation and cannot be closed by users.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Request access…", null, (_, _) => new RequestAccessForm().Show());
+        menu.Items.Add("Enter unlock code…", null, (_, _) => new UnlockCodeForm().Show());
         menu.Items.Add("Reconnect to server (administrator)…", null, (_, _) => StartReconnect());
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = true, Text = "SentinelDesk — starting…", Icon = Icons.For("starting") };

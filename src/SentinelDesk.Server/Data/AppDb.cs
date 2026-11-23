@@ -12,6 +12,9 @@ public sealed class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<InstalledSoftware> Software => Set<InstalledSoftware>();
     public DbSet<Policy> Policies => Set<Policy>();
     public DbSet<PolicyAssignment> PolicyAssignments => Set<PolicyAssignment>();
+    public DbSet<BlockExceptionRow> BlockExceptions => Set<BlockExceptionRow>();
+    public DbSet<AccessRequest> AccessRequests => Set<AccessRequest>();
+    public DbSet<EmergencyUnblock> EmergencyUnblocks => Set<EmergencyUnblock>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
@@ -52,6 +55,8 @@ public sealed class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<DeviceEvent>().HasIndex(x => x.Time);
         b.Entity<DailyUsage>().HasKey(x => new { x.DeviceId, x.Day });
         b.Entity<DailyUsage>().HasIndex(x => x.Day);
+        b.Entity<BlockExceptionRow>().ToTable("BlockExceptions").HasIndex(x => new { x.TargetType, x.TargetId });
+        b.Entity<AccessRequest>().HasIndex(x => new { x.Status, x.CreatedAt });
 
         // All timestamps are stored as UTC; make sure they come back flagged as UTC (serialised with 'Z').
         var utc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(

@@ -17,6 +17,8 @@ public sealed class AgentState
     public long NetInBps, NetOutBps;
     public string? ConnectionType;
     public string? CurrentApp, CurrentTitle, CurrentUser;
+    /// <summary>Server time minus local time, from the last heartbeat. Timed block rules use server time.</summary>
+    public TimeSpan ServerClockOffset;
     public bool UserIdle, Locked;
     public volatile DeviceLocation? Location;
     public volatile string? LocationError;

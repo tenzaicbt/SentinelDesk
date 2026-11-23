@@ -52,6 +52,7 @@ public sealed class HeartbeatWorker(ServerClient server, AgentConfig config, Age
                     foreach (var cmd in res.Commands) await executor.ExecuteAsync(cmd, viaHub: false, ct);
                     if (res.Update is not null) await updates.StageAsync(res.Update, ct);
 
+                    state.ServerClockOffset = res.ServerTimeUtc - DateTime.UtcNow;
                     // detect a large wall-clock skew against the server (clock tampering breaks auth & timelines)
                     if (Math.Abs((res.ServerTimeUtc - DateTime.UtcNow).TotalMinutes) > 3)
                         log.LogWarning("Local clock differs from server by {Min:0} min", (res.ServerTimeUtc - DateTime.UtcNow).TotalMinutes);

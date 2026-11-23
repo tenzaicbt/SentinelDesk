@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { ago } from '../lib/format'
 import { Button, Card, cx, PageHeader, Skeleton } from '../components/ui'
 import { KIND_ICON } from '../components/policyIcons'
+import { AccessRequests, EmergencyUnblock } from '../components/blocking'
 import { KIND_ORDER, KINDS, summary, type PolicyKind, type PolicyRow } from '../lib/policy'
 
 export default function Policies() {
@@ -13,7 +14,10 @@ export default function Policies() {
   return (
     <>
       <PageHeader title="Policies" icon={<ShieldBan className="size-5" />}
-        subtitle="Block websites, applications and USB drives on your computers. A computer gets every policy that applies to it." />
+        subtitle="Block websites, applications and USB drives on your computers. A computer gets every policy that applies to it."
+        actions={<EmergencyUnblock part="button" />} />
+      <div className="mb-3 space-y-3"><EmergencyUnblock part="banner" /></div>
+      <AccessRequests />
       {!data ? (
         <div className="grid gap-3 lg:grid-cols-3">{KIND_ORDER.map((k) => <Skeleton key={k} className="h-64" />)}</div>
       ) : (

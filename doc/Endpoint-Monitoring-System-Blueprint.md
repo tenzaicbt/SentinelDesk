@@ -2,8 +2,14 @@
 
 > **Project codename:** `SentinelDesk` (rename freely)
 > **Scope:** Organization-wide (island-wide, multi-branch) monitoring of company PCs and laptops through a protected tray agent and a central web console.
-> **Version:** 1.2.1 — Blueprint (first written as 1.0 on 2026-11-20)
+> **Version:** 1.3.0 — Blueprint (first written as 1.0 on 2026-11-20)
 > **Date:** 2026-11-23
+>
+> **What changed in 1.3.0:** new **§17 One-Click Block / Unblock** for websites, applications and USB: a single
+> toggle in the console, confirmed end-to-end by the agent (*Pending → Applied / Failed*) in seconds; stronger
+> enforcement layers (local DNS filter + WFP, App Control for Business, Removable Storage Access policies + live device
+> eject); advanced options (schedules, temporary unblock, allow-lists, per-user rules, USB whitelist / read-only,
+> unblock requests, emergency *Unblock all*); new protocol messages, tables, APIs, test matrix and a 7-week plan.
 >
 > **What changed in 1.2.1:** policies are now **block policies** (block websites, applications and USB drives) that
 > stack on top of one standard monitoring configuration (§4.5, §7.1, §7.2, §8.1); the tray shows a notice for blocked
@@ -18,7 +24,7 @@
 | 1 | Small agent on every PC/laptop, visible in system tray | Windows Service (core) + lightweight Tray App (UI/status) |
 | 2 | Install **and** uninstall require admin credentials | Signed MSI with elevation, uninstall password + admin check, service ACL hardening, watchdog, tamper alerts |
 | 3 | Advanced encryption | mTLS (TLS 1.3) per-device certificates, AES-256-GCM payload encryption, encrypted local buffer (SQLCipher + DPAPI/TPM key) |
-| 4 | Central web system to configure all agents | Policy engine, groups (branch/department), remote config push in real time; block policies for websites, applications and USB drives (§4.5) |
+| 4 | Central web system to configure all agents | Policy engine, groups (branch/department), remote config push in real time; block policies for websites, applications and USB drives (§4.5) with **one-click block/unblock confirmed by the device** (§17) |
 | 5 | Deep per-device view | Hardware/software inventory, bandwidth, URLs/websites, running apps, app usage time, daily live data usage, logged-in user, idle/active time, USB events, alerts |
 | 6 | Works across the whole island (many branches, remote laptops) | Internet-facing HTTPS gateway (or VPN), offline buffering, auto-reconnect, delta sync |
 
@@ -183,6 +189,9 @@ Collectors ──► In-memory channel (System.Threading.Channels)
 - *Reconnect to server* relaunches the tray elevated (UAC, administrator credentials) to enter a new enrollment token (§5.5).
 
 ### 4.5 Enforcement — Block Policies
+
+> Since 1.3.0 the console's one-click controls, the stronger enforcement layers and the advanced options are specified
+> in **§17**. This section describes the base layers that §17 builds on.
 
 The agent enforces three kinds of restriction, each delivered as part of the signed policy (§7.2). Everything is
 re-applied every minute; a change made on the device is reverted and reported as `tamper.blockList`.
@@ -592,6 +601,9 @@ secure-DNS control + categories and helper domains), applications (IFEO + proces
 tamper repair, attempt logging and an alert rule; stacking policy model; tray re-enrollment by an administrator.
 Still open from phase 7: browser extension for full URLs.
 
+**Planned for 1.3.0 (+7 weeks, see §17.11):** one-click block/unblock with device confirmation, local DNS filter + WFP,
+App Control for Business rules, Removable Storage Access policies with live eject, advanced options.
+
 ---
 
 ## 14. Testing Strategy
@@ -615,3 +627,309 @@ Commercial products already do much of this (e.g., ManageEngine Endpoint Central
 2. Decide URL logging level (domain only vs full URL) with HR/legal.
 3. Approve stack (.NET 10 + PostgreSQL/TimescaleDB + Next.js).
 4. Start Phase 0 & 1 — agent MVP with heartbeat + inventory on 5 pilot PCs.
+
+---
+
+## 17. One-Click Block / Unblock — Websites, Applications, USB (v1.3.0)
+
+### 17.1 Goal and "Done" definition
+
+An administrator blocks or unblocks a **website**, an **application** or **USB storage** with **one click** — for one
+device, a department, a branch or the whole organization — and the console shows, per device, whether it **really
+took effect**.
+
+| Requirement | Target (online device) |
+|---|---|
+| Click → change active on device | **≤ 5 s** (p95), ≤ 15 s worst case |
+| Click → console shows *Applied* / *Failed* | ≤ 10 s |
+| Unblock fully restores previous state | 100 % (no leftover registry, hosts, IFEO, WDAC, device-disabled state) |
+| Offline device | Shown as *Queued*; applied within 60 s of reconnect; never "silently not applied" |
+| Website block covers | Chrome, Edge, Brave, Firefox, other apps (Teams web views, curl, etc.), already-open tabs |
+| App block covers | New launches, already running copies, renamed copies (hash/publisher rules), 32- and 64-bit |
+| USB block covers | Pen drives, external HDD/SSD (incl. USB 3 **UASP**), SD readers, phones (MTP), CD/DVD — mice, keyboards, printers, headsets keep working; already-plugged drives are ejected |
+
+A click is only "done" when the agent has **applied and verified** the change and reported it back (§17.4).
+
+### 17.2 Console UX — what "one click" looks like
+
+**A. Device detail → Websites / Applications tabs:** every row gets a **Block** button; blocked rows show **Unblock**.
+
+```
+ Websites (today)                                   Applications (running / today)
+ ┌──────────────────────┬────────┬────────────┐     ┌────────────────┬────────┬──────────────┐
+ │ youtube.com    1h 12m│Social  │ [ Block ▾ ]│     │ steam.exe  42m │ Gaming │ [ Block ▾ ]  │
+ │ facebook.com   ⛔    │Social  │ [Unblock]  │     │ utorrent.exe ⛔│ P2P    │ [Unblock]    │
+ └──────────────────────┴────────┴────────────┘     └────────────────┴────────┴──────────────┘
+   Block ▾ = This device · This department · This branch · Whole organization · Options…
+```
+
+**B. Device header — quick toggles (one click each):**
+
+```
+ PC-GALLE-014  🟢 Online   User: nimal.p
+ [ 🌐 Websites: Policy ▾ ]   [ 🧩 Apps: Policy ▾ ]   [ 🔌 USB storage:  ● Blocked  ○ Allowed ]
+   status chip →  ✅ Applied 3 s ago   |   ⏳ Pending   |   ❌ Failed: "UASPStor locked by device" [Retry]
+```
+
+**C. Group / Organization page — bulk toggle:** same toggles for a whole org unit, with a live progress bar
+`Applied 412 / 430 · Pending 15 (offline) · Failed 3 [view]`.
+
+**D. "Options…" dialog (advanced, optional — the default is a plain one click):**
+duration (permanent / 15 min / 1 h / until end of day / until date), schedule (working hours only), match type
+(domain + subdomains / exact path / category; file name / hash / publisher), mode (*Block* / *Warn* / *Log only*),
+users (all / AD group / specific user), note shown to the user, reason (stored in audit log).
+
+**Rules for the buttons**
+- Optimistic UI: the chip turns ⏳ *Pending* instantly; it only turns ✅ when the device's `EnforcementReport` arrives.
+- **Undo** toast for 10 s after each click (sends the opposite action).
+- Inherited blocks (from branch/organization) show a 🔒 icon and "Blocked by *Galle Branch — Social*"; *Unblock* on a
+  single device then creates an **exception** (§17.6) instead of editing the parent policy.
+- Protected items (Windows, sign-in, SentinelDesk — §4.5 *Safety*) are greyed out with a tooltip.
+
+### 17.3 How it maps onto the stacking policy model
+
+No new concept for the agent: each org unit and device gets three auto-managed **"Quick" restriction policies**
+(`kind = websites | apps | usb`, `managed = true`, hidden from the policy list but visible in the audit log). A click
+adds/removes an entry in the Quick policy of the chosen target, bumps its version, and the existing merge (§7.2)
+rebuilds the effective policy. New fields per entry:
+
+```json
+"block": {
+  "urls": [
+    { "id": "r-91", "value": "youtube.com", "match": "domain", "mode": "block",
+      "users": ["*"], "schedule": "working-hours", "expiresAt": "2026-11-23T17:00:00+05:30" }
+  ],
+  "apps": [
+    { "id": "r-92", "value": "utorrent.exe", "match": "name|hash|publisher",
+      "sha256": ["9f2c…"], "publisher": "CN=BitTorrent Inc", "mode": "block" }
+  ],
+  "usb": { "mode": "block | readOnly | allow", "allowSerials": ["0701ABCD1234"], "allowVidPid": ["0781:5581"],
+           "classes": ["massStorage", "uasp", "mtp", "sd", "cdrom"] },
+  "exceptions": [ { "ruleId": "r-91", "target": "device:PC-GALLE-014", "until": null } ]
+}
+```
+
+Merge rules: lists are unioned; **exceptions beat inherited blocks**; for USB the strictest mode wins
+(`block` > `readOnly` > `allow`) unless an exception applies; expired entries are removed by the server **and** ignored by
+the agent (agent clock checked against server time on each heartbeat, so changing the PC clock does not extend/shorten).
+
+### 17.4 End-to-end flow (the part that makes it "properly working")
+
+```
+ Console click
+   │  POST /api/v1/quick-blocks   (idempotency key = click id)
+   ▼
+ Control API ── validate (protected list, RBAC scope) ── update Quick policy ── audit_log
+   │  recompute effective policy for affected devices (worker, batched)  ── sign (ECDSA P-256)
+   ▼
+ Redis presence: online?  ──yes──► CommandStream: PolicyUpdated{effective_version}
+   │                       no ───► enforcement_state = QUEUED
+   ▼
+ Agent: GetPolicy → verify signature → EnforcementEngine.Reconcile(desired)
+   │     per enforcer: Plan → Apply (journaled) → Verify → (Rollback on error)
+   ▼
+ Agent → EnforcementReport{version, results[rule, status, error, verifiedAt]}
+   ▼
+ Server: enforcement_state upsert → SignalR "enforcement.updated" → chip turns ✅ / ❌
+```
+
+Reliability rules:
+1. **Desired-state, not commands.** The agent always converges to the signed effective policy; a lost message cannot
+   leave a device half-blocked. The 60-second reconcile loop (§4.5) also repairs tampering.
+2. **Ack with verification.** Each enforcer proves the result (e.g. the local resolver answers `0.0.0.0` for the
+   domain; the IFEO + App Control rule is present and the test spawn is refused; `USBSTOR`/`UASPStor` are disabled and no
+   storage volume is mounted). Status is `applied`, `applied_partial` (e.g. Firefox needs restart) or `failed` + reason.
+3. **Journal + rollback.** Every change is written to an encrypted journal *before* applying (old value, new value).
+   Unblock and uninstall replay the journal backwards, so the original state is restored exactly.
+4. **Timeout handling.** No report within 30 s for an online device → server re-sends once, then marks
+   `failed: no-response` and raises an alert.
+5. **Idempotent and ordered.** Policy versions are monotonic; an older version arriving late is ignored.
+
+### 17.5 Enforcement layers (v1.3.0)
+
+#### 17.5.1 Websites
+
+| Layer | Technology | Block | Unblock |
+|---|---|---|---|
+| 1. Browser policy | `URLBlocklist` (Chrome/Edge/Brave), `WebsiteFilter` (Firefox) under `HKLM\SOFTWARE\Policies`, then `RefreshPolicyEx(TRUE, RP_FORCE)` | Chromium browsers pick up registry policy changes within seconds; Firefox reads policy at start → report `applied_partial` + optional tray prompt "restart Firefox" | Remove only our entries; refresh |
+| 2. **Local DNS filter (new)** | Agent runs a DNS resolver on `127.0.0.1:53` (.NET, `System.Net.Sockets` + DNS parser such as `DnsClient`/`ARSoft.Tools.Net`), sets every adapter's DNS to it, forwards allowed queries to the original servers | Blocked domain → `0.0.0.0` / `::`; replaces the hosts file as primary (hosts kept as fallback) | Domain removed from in-memory list instantly |
+| 3. **WFP firewall (new)** | Windows Filtering Platform user-mode filters (`FwpmFilterAdd0`, dynamic session owned by the agent's provider) | Block outbound UDP/TCP 53 and 853 to anything except the local resolver; block known DoH endpoints (8.8.8.8, 1.1.1.1, dns.google, … list in policy); block IPs resolved for blocked domains (refreshed from DNS answers) | Filters removed by filter key |
+| 4. Kill open sessions | `SetTcpEntry(MIB_TCP_STATE_DELETE_TCB)` for connections to blocked IPs + `DnsFlushResolverCache` | Already-open tabs/apps lose the connection immediately | — |
+| 5. Browser extension (optional, recommended) | Force-installed Chrome/Edge extension (`declarativeNetRequest` dynamic rules) via native messaging | Rule added and matching open tabs reloaded → block page appears in open tabs within ~1 s | Rule removed |
+
+Notes: Chromium's own DoH is disabled by policy (`DnsOverHttpsMode = off`) while any website block applies; with the
+local resolver this is a second guarantee. Path rules (`youtube.com/shorts`) are only enforceable in layers 1 and 5
+(DNS sees domains only) — the console says so next to the rule.
+
+#### 17.5.2 Applications
+
+| Layer | Technology | Catches |
+|---|---|---|
+| 1. IFEO redirect | `Image File Execution Options\<name>\Debugger` → `SentinelDesk.Tray.exe --blocked`, written to **both** the 64-bit key and `WOW6432Node` | New launches by file name, instantly, no reboot |
+| 2. **App Control for Business (WDAC) supplemental policy (new)** | Policy built server-side (ConfigCI cmdlets / WDAC Wizard XML → binary), deployed with `CiTool.exe --update-policy` (Windows 11 22H2+, no reboot); on Windows 10 copy to `CodeIntegrity\CiPolicies\Active` + refresh tool | **Renamed copies** (hash and publisher/`OriginalFileName` rules), launches by any method |
+| 3. Process watcher | ETW `Microsoft-Windows-Kernel-Process` start events + 3 s sweep; match name, wildcard, SHA-256, signer, `OriginalFilename` from version resource | Already-running copies (terminated with `TerminateProcess` after a 5 s notice), wildcards, portable apps |
+| 4. Store / UWP apps | AppX package family name rules (WDAC/AppLocker packaged-app rules) | Microsoft Store apps |
+
+Unblock: remove IFEO keys, re-deploy WDAC supplemental policy without the rule (or remove it when empty), stop watcher
+rule. Nothing remains to undo for already-terminated processes. Option *Warn* mode shows the notice but lets the app run
+(and logs `block.warned`).
+
+> One-click from the Applications tab sends the program's **hash, signer and original file name** collected by the
+> process collector, so the rule is name **+** hash **+** publisher by default — renaming the .exe no longer helps.
+
+#### 17.5.3 USB storage
+
+| Layer | Technology | Effect |
+|---|---|---|
+| 1. Removable Storage Access policy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices` — `Deny_All` (block) or `{53f5630d-…}\Deny_Write` (read-only) for removable disks, CD/DVD, WPD (phones/MTP), tape | Windows refuses access to storage classes |
+| 2. Storage drivers | `USBSTOR` **and** `UASPStor` `Start = 4` (UASP USB 3 drives do not use `USBSTOR`) | New drives don't get a driver |
+| 3. **Live eject (new)** | SetupAPI / CfgMgr32: enumerate `GUID_DEVINTERFACE_DISK` with removable/USB bus, `CM_Request_Device_Eject`, fall back to `SetupDiChangeState(DICS_DISABLE)` | Drives already plugged in disappear within seconds |
+| 4. Arrival guard | `RegisterDeviceNotification` / WMI `Win32_DeviceChangeEvent` in the service; non-whitelisted storage device → disable + `usb.blocked` event + tray notice | Whitelist by **serial / VID:PID**, rejects anything that slips through |
+
+Unblock: remove deny values, restore `Start = 3` for both drivers, re-enable devices we disabled (from the journal),
+`CM_Reenumerate_DevNode` on the root → drives mount again **without unplugging**. HID, printers, audio and
+Bluetooth input are never touched.
+
+### 17.6 Advanced options
+
+| Option | Websites | Apps | USB | How |
+|---|:-:|:-:|:-:|---|
+| Temporary block / temporary unblock (15 min, 1 h, end of day, date) | ✅ | ✅ | ✅ | `expiresAt` per entry/exception; agent enforces with server-time offset |
+| Schedules (working hours, lunch break open, weekends) | ✅ | ✅ | ✅ | `schedule` = named schedule from org settings (tz `Asia/Colombo`) |
+| Exceptions (allow one device/user under a parent block) | ✅ | ✅ | ✅ | `exceptions[]`, exceptions beat inherited blocks |
+| Allow-list mode ("only these sites/apps") | ✅ | ✅ | — | Websites: resolver default-deny + allow list; Apps: WDAC allow policy (advanced, pilot first) |
+| Per user / AD group | ✅ | ✅ | ✅ | Agent maps active session SID → groups (`users` field); applied at logon/switch |
+| Modes: Block / Warn / Log-only | ✅ | ✅ | ✅ (read-only) | Try a rule in *Log-only* to see impact before blocking |
+| Categories (Social, Streaming, AI Tools …) incl. helper domains | ✅ | ✅ (Gaming, P2P, Remote-access tools) | — | Server-side category lists, versioned, pushed in policy |
+| USB whitelist (company-issued drives) | — | — | ✅ | Serial / VID:PID; one click "Allow this drive" from the USB tab |
+| USB read-only | — | — | ✅ | `Deny_Write` only |
+| Unblock request from user | ✅ | ✅ | ✅ | Tray notice has *Request access* → reason → console inbox → **Approve 1 h / Approve / Reject** (one click) |
+| Offline one-time code | ✅ | ✅ | ✅ | Console generates a code (HMAC of device id + rule + window, valid 1 h); admin types it in elevated tray |
+| Emergency **Unblock all** | ✅ | ✅ | ✅ | Super Admin only, MFA re-prompt, scope selectable, audited |
+| Bulk import | ✅ | ✅ | ✅ | CSV paste of domains / exe names / serials |
+| Effect preview | ✅ | ✅ | ✅ | "This will affect 430 devices, 312 users; 27 visited this site today" before confirming bulk actions |
+
+### 17.7 Protocol additions (`proto/sentineldesk/v1`)
+
+```proto
+// Agent → server, sent on CommandStream after every reconcile that changed anything (and every 15 min as summary)
+message EnforcementReport {
+  string device_id = 1;
+  string effective_version = 2;
+  repeated RuleResult results = 3;
+  google.protobuf.Timestamp reported_at = 4;
+}
+message RuleResult {
+  string rule_id = 1;                 // r-91 or "usb"
+  enum Kind { WEBSITE = 0; APP = 1; USB = 2; }
+  Kind kind = 2;
+  enum Status { APPLIED = 0; APPLIED_PARTIAL = 1; REMOVED = 2; FAILED = 3; SKIPPED_SCHEDULE = 4; }
+  Status status = 3;
+  string detail = 4;                  // e.g. "firefox restart required", "UASPStor access denied"
+  repeated string layers_ok = 5;      // ["browser","dns","wfp"]
+}
+
+// Server → agent (added to ServerCommand.oneof)
+message ReconcileNow { string reason = 1; }          // "Retry" button
+message UnlockCode   { string code = 1; }            // pushed when approved request
+```
+
+### 17.8 REST API
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/v1/quick-blocks` | `{ kind: "website"|"app"|"usb", action: "block"|"unblock"|"allow", value, target: {type, id}, options? }` → `202 { operationId }` |
+| `DELETE /api/v1/quick-blocks/{ruleId}` | Unblock (same as action `unblock`) |
+| `POST /api/v1/quick-blocks/{ruleId}/exceptions` | Exception for a device/user |
+| `GET  /api/v1/operations/{operationId}` | Progress: applied / pending / failed counts |
+| `GET  /api/v1/devices/{id}/enforcement` | Current per-rule state for the device chips |
+| `POST /api/v1/devices/{id}/reconcile` | Retry |
+| `GET/POST /api/v1/access-requests` · `POST …/{id}/approve` | Unblock request workflow |
+| `POST /api/v1/emergency/unblock-all` | Kill switch (Super Admin + MFA step-up) |
+| SignalR `enforcement.updated`, `operation.progress`, `accessRequest.created` | Live chips and progress bars |
+
+All endpoints: RBAC-scoped (Branch IT Admin only inside their branch), idempotency key header, audited.
+
+### 17.9 Database additions
+
+```sql
+-- policies: add managed flag for the auto "Quick" policies
+ALTER TABLE policies ADD COLUMN managed boolean NOT NULL DEFAULT false;
+
+block_rules(id, policy_id, kind, value, match_type, sha256[], publisher, mode,
+            users jsonb, schedule_id, expires_at, created_by, created_at)
+block_exceptions(id, rule_id, target_type, target_id, until, created_by, reason)
+usb_allow_list(id, org_unit_id, serial, vid_pid, label, created_by)
+enforcement_state(device_id, rule_id, desired, status, detail, layers_ok text[],
+                  effective_version, updated_at, PRIMARY KEY (device_id, rule_id))
+operations(id, admin_id, kind, action, target, total, applied, failed, pending, created_at)
+access_requests(id, device_id, username, kind, value, reason, status, decided_by, decided_at, grant_until)
+schedules(id, org_id, name, tz, json)
+```
+
+`enforcement_state` is also mirrored in Redis for the live chips; Postgres is the source of truth for reports
+("which devices still have Facebook unblocked?").
+
+### 17.10 Technologies (added in 1.3.0)
+
+| Area | Technology | Use |
+|---|---|---|
+| Agent – enforcement engine | .NET 10, `IEnforcer` interface (`Plan / Apply / Verify / Rollback`), journal in SQLCipher | Desired-state reconciler for the three kinds |
+| Agent – DNS filter | .NET UDP/TCP listener + `DnsClient` (or `ARSoft.Tools.Net`) for parsing/forwarding | Local resolver on 127.0.0.1 |
+| Agent – firewall | WFP via P/Invoke (`fwpuclnt.dll`: `FwpmEngineOpen0`, `FwpmFilterAdd0`, own provider + sublayer) | DNS/DoH lockdown, IP blocks |
+| Agent – connections | `iphlpapi.dll` (`GetExtendedTcpTable`, `SetTcpEntry`), `dnsapi.dll` (`DnsFlushResolverCache`) | Cut open sessions |
+| Agent – apps | IFEO registry, **App Control for Business** (`CiTool.exe`), ETW `TraceEvent`, `WinVerifyTrust` for signer | Name + hash + publisher blocking |
+| Server – WDAC builder | PowerShell `ConfigCI` module in a Windows worker container, or prebuilt XML templates + `ConvertFrom-CIPolicy` | Build signed supplemental policies |
+| Agent – USB | `CfgMgr32` (`CM_Request_Device_Eject`, `CM_Reenumerate_DevNode`), `SetupAPI` (`SetupDiChangeState`), `RegisterDeviceNotification` | Live eject, re-enable, arrival guard |
+| Browser | Chrome/Edge MV3 extension (`declarativeNetRequest`, `tabs`), native messaging host | Instant block in open tabs |
+| Console | Next.js toggle/chip components (shadcn `Switch`, `Badge`, `Toast` with Undo), TanStack Query optimistic updates, SignalR | One-click UX with live status |
+| Backend | ASP.NET Core minimal APIs, Hangfire jobs for expiries/schedules, Redis pub/sub, existing ECDSA signer | Quick policy updates, expiry, push |
+| Testing | Windows VM pool (Hyper-V/Azure) with Pester + xUnit, Playwright for console and browser block page checks | Automated test matrix §17.12 |
+
+### 17.11 Technical plan (≈ 7 weeks, same team)
+
+| Week | Work | Exit criteria |
+|---|---|---|
+| 1 | Enforcement engine skeleton: `IEnforcer`, journal, reconcile loop, `EnforcementReport` proto, server `enforcement_state` + SignalR | Dummy enforcer reports *Applied* to console in < 10 s |
+| 2 | Console one-click: Quick policies, `/quick-blocks` API, buttons on Websites/Applications/USB tabs, header toggles, chips, Undo, protected-list checks | Click → signed policy → device in < 5 s on LAN |
+| 3 | Websites: local DNS resolver, WFP DNS/DoH lockdown, TCP kill, verification, Firefox partial status | Block/unblock test matrix (websites) green on Win10/11 |
+| 4 | Applications: IFEO both views, hash/publisher capture, WDAC supplemental builder + `CiTool` deploy, watcher with `OriginalFilename`, Store apps | Renamed-copy and running-copy tests green |
+| 5 | USB: storage access policy, USBSTOR + UASPStor, live eject, arrival guard, whitelist, read-only, full restore on unblock | Plug-in / already-plugged / UASP / MTP tests green |
+| 6 | Advanced: expiries & schedules (server + agent), exceptions, per-user, access requests, unlock codes, emergency unblock-all, bulk progress page | Feature tests + RBAC tests green |
+| 7 | Hardening: tamper tests, rollback/uninstall cleanliness, 10k-agent bulk toggle load test, browser extension, docs, pilot branch | p95 ≤ 5 s at 2,000 devices; zero leftovers after uninstall |
+
+### 17.12 Test matrix (must pass before release)
+
+| # | Scenario | Expected |
+|---|---|---|
+| W1 | Block `facebook.com` on device; open new tab in Chrome, Edge, Brave | Browser block page ≤ 5 s |
+| W2 | Same with a Facebook tab already open | Connection dropped; with extension: block page ≤ 2 s |
+| W3 | Firefox open | `applied_partial`, DNS/WFP still stop loading; full after restart |
+| W4 | User edits hosts file / sets DNS 8.8.8.8 / enables DoH | Still blocked; `tamper.blockList` within 60 s |
+| W5 | Unblock | Site loads ≤ 5 s, original DNS + DoH settings restored |
+| A1 | Block `steam.exe` while running | Notice shown, process closed ≤ 8 s |
+| A2 | Copy to `notsteam.exe` and run | Refused (hash/publisher rule) |
+| A3 | 32-bit app on 64-bit Windows; Store app | Both refused |
+| A4 | Unblock | Launches normally, IFEO/WDAC entries gone |
+| U1 | Block USB with pen drive already plugged | Drive disappears ≤ 5 s |
+| U2 | Plug USB 3 UASP SSD, phone (MTP), SD card | None mount; mouse/keyboard/printer still work |
+| U3 | Whitelisted serial | Mounts normally |
+| U4 | Read-only mode | Files readable, write denied |
+| U5 | Unblock | Already-plugged drive mounts without unplugging |
+| G1 | Branch-wide block on 400 devices, 20 offline | Progress shows applied/pending; offline apply on reconnect |
+| G2 | Inherited block + device exception | Exception device unblocked, others blocked |
+| G3 | Temporary unblock 15 min; PC clock moved forward/back | Re-blocks at server time, not PC time |
+| G4 | Agent killed mid-apply | Journal replays; final state = desired policy |
+| G5 | Uninstall | All layers removed, original settings restored |
+
+### 17.13 Known limits (be honest with HR/management)
+
+- A **local administrator** can still undo enforcement (and the agent will detect and report it). Remove local admin
+  rights from staff — §5.2.
+- Website blocking is domain-based outside the browser extension; a **VPN, Tor or proxy app** can bypass DNS/WFP
+  layers → block those apps (category *VPN/Proxy* in §17.6) and alert on unknown VPN adapters.
+- App Control for Business rules on Windows 10 may need a refresh tool or reboot for some policy types; Windows 11
+  22H2+ applies them live.
+- Firefox applies its policy list only after restart (DNS/WFP layers still block meanwhile).
+- Phones in **USB tethering** mode are network adapters, not storage — block via a separate *Network adapters* option if
+  needed.

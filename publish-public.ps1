@@ -111,7 +111,7 @@ Invoke-Git $g @('add', '-A') | Out-Null
 $staged = Invoke-Git $g @('status', '--porcelain')
 if (-not $staged) { Write-Host 'Public repo already up to date - nothing to commit.' -ForegroundColor Yellow; return }
 $msgFile = Join-Path ([IO.Path]::GetTempPath()) "sd-public-msg-$PID.txt"
-[IO.File]::WriteAllText($msgFile, "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`n", (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($msgFile, "$Message`n", (New-Object Text.UTF8Encoding $false))
 try { Invoke-Git $g @('commit', '-q', '-F', $msgFile) | Out-Null } finally { Remove-Item $msgFile -ErrorAction SilentlyContinue }
 Set-Content -Path (Join-Path $g '.git/sentineldesk-source-commit') -Value $sourceCommit -Encoding ascii
 Invoke-Git $g @('log', '--stat', '--format=%h %s', '-1') | Write-Host

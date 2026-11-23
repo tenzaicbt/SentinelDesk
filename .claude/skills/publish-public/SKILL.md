@@ -22,7 +22,8 @@ messages) free of developer detail.
 
 1. `git status` and `git diff` in the private repo. If there are uncommitted changes, review them and commit in
    logical commits with clear messages (match the existing log style: short imperative summary). Never commit secrets
-   (`.env`, `data/`, keys, `*.db`).
+   (`.env`, `data/`, keys, `*.db`). Never add `Co-Authored-By: Claude` or any other Claude attribution to commit
+   messages, tags or release notes in either repo.
 2. `git push origin main`. If the push is rejected, stop and tell the user. Do not force-push.
 
 ### 2. Find what changed since the last public release

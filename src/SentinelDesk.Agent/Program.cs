@@ -1,3 +1,4 @@
+using SentinelDesk.Agent.Enforcement;
 using SentinelDesk.Agent.Collectors;
 using SentinelDesk.Agent.Core;
 using SentinelDesk.Agent.Ipc;
@@ -136,6 +137,7 @@ void Hosted<T>() where T : class, IHostedService
 }
 Hosted<AutoEnrollWorker>();
 Hosted<TamperMonitor>();
+Hosted<BlockEnforcer>();
 Hosted<MetricsCollector>();
 Hosted<EtwCollector>();
 Hosted<InventoryCollector>();

@@ -31,7 +31,7 @@ interface Device {
   id: string; hostname: string; domain?: string; machineId: string; serial?: string; manufacturer?: string; model?: string; os: string; osBuild: string
   agentVersion: string; status: string; enrolledAt: string; lastSeenAt?: string; lastIp?: string; publicIp?: string; loggedInUser?: string
   orgUnitId?: string; orgPath: string[]; tags?: string; certThumbprint?: string; certExpiresAt?: string; isSimulated: boolean
-  policy: { id: string; name: string; effectiveVersion: number; applied: boolean }
+  policy: { id: string; name: string; effectiveVersion: number; applied: boolean; restrictions?: { id: string; name: string; kind: string }[] }
   online: boolean; presence?: Presence; today: { bytesIn: number; bytesOut: number; activeSec: number; idleSec: number }
   location?: LocationInfo | null
   hardware?: HardwareInfo; hardwareCollectedAt?: string; security?: SecurityPosture; securityCollectedAt?: string; liveChannel: boolean
@@ -642,8 +642,10 @@ function Details({ d, p, online }: { d: Device; p?: Presence; online: boolean })
         <Kv items={[
           ['Agent version', mono(d.agentVersion)],
           ['Status', <Badge tone={d.status === 'active' ? 'good' : 'warning'}>{d.status}</Badge>],
-          ['Policy', <span title={d.policy.name}>{d.policy.name} · v{d.policy.effectiveVersion}</span>],
-          ['Policy applied', yes(d.policy.applied)],
+          ['Block policies', d.policy.restrictions?.length
+            ? <span className="flex flex-wrap justify-end gap-1">{d.policy.restrictions.map((r) => <Link key={r.id} to={`/policies/${r.id}`}><Badge tone="critical">{r.name}</Badge></Link>)}</span>
+            : 'None'],
+          ['Rules applied on the computer', yes(d.policy.applied)],
           ['Server link', d.liveChannel ? <Badge tone="good">Live channel</Badge> : <Badge>Heartbeat</Badge>],
           ['Local IP', mono(p?.ip ?? d.lastIp)],
           ['Public IP', mono(d.publicIp)],

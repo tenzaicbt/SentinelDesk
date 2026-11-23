@@ -48,35 +48,69 @@ public sealed class PolicyService(AppDb db, ServerKeys keys)
 {
     public static AgentPolicy DefaultPolicy() => new() { PolicyId = "default", Name = "Default" };
 
-    public async Task<(Policy Policy, int EffectiveVersion)> ResolveAsync(Device device)
+    /// <summary>The device's monitoring policy, the restriction policies stacked on top, and the version of the combination.</summary>
+    public sealed record Resolved(Policy Policy, IReadOnlyList<Policy> Restrictions, int EffectiveVersion);
+
+    public async Task<Resolved> ResolveAsync(Device device)
     {
         var assignments = await db.PolicyAssignments.AsNoTracking().ToListAsync();
-        Guid? policyId = assignments.FirstOrDefault(a => a.TargetType == "device" && a.TargetId == device.Id)?.PolicyId;
-        if (policyId is null && device.OrgUnitId is { } unit)
+        var policies = await db.Policies.AsNoTracking().ToDictionaryAsync(p => p.Id);
+
+        // targets from most to least specific: the device, then its org unit and every parent up to the organization
+        var chain = new List<(string Type, Guid Id)> { ("device", device.Id) };
+        if (device.OrgUnitId is { } unit)
         {
             var units = await db.OrgUnits.AsNoTracking().ToDictionaryAsync(o => o.Id);
             Guid? cursor = unit;
-            var guard = 0;
-            while (cursor is { } c && policyId is null && guard++ < 20)
+            for (var guard = 0; cursor is { } c && guard < 20; guard++)
             {
-                policyId = assignments.FirstOrDefault(a => a.TargetType == "orgUnit" && a.TargetId == c)?.PolicyId;
+                chain.Add(("orgUnit", c));
                 cursor = units.TryGetValue(c, out var ou) ? ou.ParentId : null;
             }
         }
-        var policy = (policyId is { } pid ? await db.Policies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == pid) : null)
-                     ?? await db.Policies.AsNoTracking().FirstAsync(p => p.IsDefault);
-        return (policy, EffectiveVersion(policy));
+        var applying = chain.SelectMany(t => assignments.Where(a => a.TargetType == t.Type && a.TargetId == t.Id))
+            .Select(a => policies.GetValueOrDefault(a.PolicyId)).OfType<Policy>().ToList();
+
+        // monitoring settings always come from the Default policy (the console only manages block policies)
+        var main = policies.Values.FirstOrDefault(p => p.IsDefault) ?? await db.Policies.AsNoTracking().FirstAsync(p => p.IsDefault);
+        var restrictions = applying.Where(p => PolicyKinds.IsRestriction(p.Kind)).DistinctBy(p => p.Id).OrderBy(p => p.Id).ToList();
+        return new Resolved(main, restrictions, EffectiveVersion(main, restrictions));
     }
 
-    public static int EffectiveVersion(Policy p) =>
-        (int)(Crc32.HashToUInt32(Encoding.UTF8.GetBytes($"{p.Id:N}|{p.Version}")) & 0x7FFFFFFF);
+    public static int EffectiveVersion(Policy main, IEnumerable<Policy> restrictions)
+    {
+        var key = string.Join(";", restrictions.Select(r => $"{r.Id:N}|{r.Version}").Prepend($"{main.Id:N}|{main.Version}"));
+        return (int)(Crc32.HashToUInt32(Encoding.UTF8.GetBytes(key)) & 0x7FFFFFFF);
+    }
+
+    /// <summary>Adds a restriction policy's rules to the device's effective policy.</summary>
+    public static void Merge(AgentPolicy into, Policy restriction)
+    {
+        var r = Json.Deserialize<AgentPolicy>(restriction.Json)?.Block ?? new BlockSettings();
+        var b = into.Block;
+        switch (restriction.Kind)
+        {
+            case PolicyKinds.Websites:
+                b.Urls = [.. b.Urls.Union(r.Urls, StringComparer.OrdinalIgnoreCase)];
+                b.Categories = [.. b.Categories.Union(r.Categories, StringComparer.OrdinalIgnoreCase)];
+                break;
+            case PolicyKinds.Apps:
+                if (b.Apps.Count == 0) { b.NotifyUser = r.NotifyUser; b.Message = r.Message; }
+                b.Apps = [.. b.Apps.Union(r.Apps, StringComparer.OrdinalIgnoreCase)];
+                break;
+            case PolicyKinds.Usb:
+                into.Collectors.UsbBlock = true;
+                break;
+        }
+    }
 
     public async Task<SignedPolicy> SignedForAsync(Device device)
     {
-        var (policy, version) = await ResolveAsync(device);
+        var (policy, restrictions, version) = await ResolveAsync(device);
         var model = Json.Deserialize<AgentPolicy>(policy.Json) ?? DefaultPolicy();
+        foreach (var r in restrictions) Merge(model, r);
         model.PolicyId = policy.Id.ToString();
-        model.Name = policy.Name;
+        model.Name = restrictions.Count == 0 ? policy.Name : $"{policy.Name} + {string.Join(", ", restrictions.Select(r => r.Name))}";
         model.Version = version;
         var json = Json.Serialize(model);
         return new SignedPolicy { Version = version, PolicyJson = json, Signature = Signing.Sign(keys.SigningKey, json) };

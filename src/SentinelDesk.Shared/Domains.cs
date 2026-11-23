@@ -65,6 +65,16 @@ public static class Domains
         ["windows.net"] = "System", ["bing.net"] = "System", ["skype.com"] = "Productivity", ["local"] = "System", ["arpa"] = "System",
     };
 
+    /// <summary>Categories that can be blocked by policy (System / Search / Local are never blockable).</summary>
+    public static readonly string[] BlockableCategories =
+        ["Social", "Messaging", "Streaming", "Gaming", "Shopping", "News", "AI Tools", "Cloud Storage"];
+
+    /// <summary>The built-in domains of a category (registrable domains; subdomains match too).</summary>
+    public static IEnumerable<string> InCategory(string category) =>
+        BlockableCategories.Contains(category, StringComparer.OrdinalIgnoreCase)
+            ? Map.Where(kv => string.Equals(kv.Value, category, StringComparison.OrdinalIgnoreCase) && kv.Key.Contains('.')).Select(kv => kv.Key)
+            : [];
+
     public static string Categorize(string domain)
     {
         domain = domain.ToLowerInvariant();

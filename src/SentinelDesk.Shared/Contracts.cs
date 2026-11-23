@@ -245,6 +245,21 @@ public sealed class AgentPolicy
     public UploadSettings Upload { get; set; } = new();
     public PrivacySettings Privacy { get; set; } = new();
     public TraySettings Tray { get; set; } = new();
+    public BlockSettings Block { get; set; } = new();
+}
+
+/// <summary>Applications and websites the agent prevents from running / loading on the device.</summary>
+public sealed class BlockSettings
+{
+    /// <summary>Executable names, e.g. "steam.exe". "*" wildcards allowed ("*torrent*.exe").</summary>
+    public List<string> Apps { get; set; } = [];
+    /// <summary>Domains ("facebook.com" also blocks its subdomains) or URL prefixes with a path ("youtube.com/shorts").</summary>
+    public List<string> Urls { get; set; } = [];
+    /// <summary>Built-in website categories, e.g. "Gaming", "Social".</summary>
+    public List<string> Categories { get; set; } = [];
+    /// <summary>Show a tray notification when an application is blocked.</summary>
+    public bool NotifyUser { get; set; } = true;
+    public string Message { get; set; } = "This application is blocked by your organisation's policy.";
 }
 
 public sealed class CollectorSettings
@@ -320,6 +335,9 @@ public sealed class PipeMessage
     public string? SessionEvent { get; set; }
     public DeviceLocation? Location { get; set; }
     public string? LocationError { get; set; }
+    /// <summary>"reenroll" (from an elevated tray only): new enrollment token, optional new server address.</summary>
+    public string? Token { get; set; }
+    public bool TrustServer { get; set; }
     // agent → tray
     public string? State { get; set; }
     public string? StatusText { get; set; }

@@ -7,6 +7,7 @@ using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Microsoft.Diagnostics.Tracing.Session;
 using SentinelDesk.Agent.Core;
+using SentinelDesk.Agent.Enforcement;
 using SentinelDesk.Agent.Pipeline;
 using SentinelDesk.Shared;
 
@@ -16,7 +17,7 @@ namespace SentinelDesk.Agent.Collectors;
 /// Kernel ETW (per-process TCP/UDP bytes, process start) and DNS-Client ETW (domains resolved) — no kernel driver needed.
 /// Requires administrator / LocalSystem; silently disabled otherwise.
 /// </summary>
-public sealed class EtwCollector(TelemetryAggregator agg, PolicyStore policy, AgentState state, ILogger<EtwCollector> log) : BackgroundService
+public sealed class EtwCollector(TelemetryAggregator agg, PolicyStore policy, AgentState state, BlockEnforcer blocker, ILogger<EtwCollector> log) : BackgroundService
 {
     private const string KernelSessionName = "SentinelDesk-Kernel";
     private const string DnsSessionName = "SentinelDesk-Dns";
@@ -68,6 +69,7 @@ public sealed class EtwCollector(TelemetryAggregator agg, PolicyStore policy, Ag
         k.ProcessStart += e =>
         {
             _pidNames[e.ProcessID] = e.ImageFileName;
+            blocker.OnProcessStart(e.ProcessID, e.ImageFileName);
             if (policy.Current.Collectors.Processes && policy.ActivityCollectionAllowed(DateTime.UtcNow) && !IsNoise(e.ImageFileName))
                 agg.AddEvent(new AgentEvent(DateTime.UtcNow, "process.start", "info", $"{e.ImageFileName} started",
                     new() { ["pid"] = e.ProcessID.ToString(), ["cmd"] = Trunc(e.CommandLine, 300) ?? "", ["parent"] = e.ParentID.ToString() }));
@@ -96,6 +98,8 @@ public sealed class EtwCollector(TelemetryAggregator agg, PolicyStore policy, Ag
         {
             // 3006 = query issued, 3008 = query completed
             if ((int)e.ID != 3008) return;
+            if (blocker.UrlRules.Count > 0 && (e.PayloadByName("QueryName") as string) is { Length: > 0 } q)
+                blocker.OnDnsLookup(q.Trim().TrimEnd('.').ToLowerInvariant(), ResolveName(e.ProcessID, null));
             if (!policy.Current.Collectors.WebDomains || !policy.ActivityCollectionAllowed(DateTime.UtcNow)) return;
             var name = (e.PayloadByName("QueryName") as string)?.Trim().TrimEnd('.').ToLowerInvariant();
             if (string.IsNullOrEmpty(name) || !name.Contains('.') || name.EndsWith(".local") || name.EndsWith(".arpa") || name.Length > 200) return;

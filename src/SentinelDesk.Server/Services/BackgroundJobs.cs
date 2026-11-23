@@ -115,6 +115,13 @@ public sealed class AlertEngine(IServiceScopeFactory scopes, PresenceStore prese
                             await Raise(rule, s.DeviceId, $"sw:{s.Name}", $"Unapproved software: {s.Name}", $"{s.Name} {s.Version} ({s.Publisher}) matched '{match}'");
                     break;
                 }
+                case "blocked":
+                {
+                    var evs = await db.Events.AsNoTracking().Where(e => e.Time >= since.AddSeconds(-90) && e.Type.StartsWith("block.") && e.Type != "block.policyApplied").ToListAsync(ct);
+                    foreach (var e in evs.Where(e => devices.ContainsKey(e.DeviceId)))
+                        await Raise(rule, e.DeviceId, $"ev{e.Id}", e.Type == "block.app" ? "Blocked application" : "Blocked website", e.Message);
+                    break;
+                }
                 case "tamper":
                 case "usb":
                 {
@@ -208,6 +215,7 @@ public static class Seeder
             ("Devices", "LocAt", "TEXT NULL"),
             ("Devices", "LocSource", "TEXT NULL"),
             ("Devices", "LocError", "TEXT NULL"),
+            ("Policies", "Kind", "TEXT NOT NULL DEFAULT 'monitoring'"),
         ];
         var added = new HashSet<string>();
         var conn = db.Database.GetDbConnection();
@@ -230,6 +238,52 @@ public static class Seeder
             added.Add($"{table}.{column}");
         }
         return added;
+    }
+
+    /// <summary>
+    /// Blocking used to be part of monitoring policies. Moves it into block policies (websites / apps / usb) with the same
+    /// assignments; blocking on the Default policy goes to the whole organization. Safe to run on every start.
+    /// </summary>
+    private static async Task MigrateLegacyBlockingAsync(AppDb db, ILogger log)
+    {
+        var root = await db.OrgUnits.AsNoTracking().Where(o => o.ParentId == null).Select(o => (Guid?)o.Id).FirstOrDefaultAsync();
+        var sources = await db.Policies.Where(p => p.Kind == PolicyKinds.Monitoring).ToListAsync();
+        var moved = 0;
+        foreach (var src in sources)
+        {
+            var model = Json.Deserialize<AgentPolicy>(src.Json);
+            if (model is null) continue;
+            var b = model.Block;
+            var parts = new List<(string Kind, string Label, AgentPolicy Settings)>();
+            if (b.Urls.Count > 0 || b.Categories.Count > 0)
+                parts.Add((PolicyKinds.Websites, "websites", new AgentPolicy { Block = new BlockSettings { Urls = b.Urls, Categories = b.Categories } }));
+            if (b.Apps.Count > 0)
+                parts.Add((PolicyKinds.Apps, "applications", new AgentPolicy { Block = new BlockSettings { Apps = b.Apps, NotifyUser = b.NotifyUser, Message = b.Message } }));
+            if (model.Collectors.UsbBlock)
+                parts.Add((PolicyKinds.Usb, "USB drives", new AgentPolicy { Collectors = new CollectorSettings { UsbBlock = true } }));
+            if (parts.Count == 0) continue;
+
+            var assignments = await db.PolicyAssignments.AsNoTracking().Where(a => a.PolicyId == src.Id).ToListAsync();
+            if (src.IsDefault && root is { } r) assignments = [new PolicyAssignment { TargetType = "orgUnit", TargetId = r }];
+            foreach (var (kind, label, settings) in parts)
+            {
+                var name = src.IsDefault ? $"Block {label} (all computers)" : parts.Count == 1 ? src.Name : $"{src.Name} - {label}";
+                settings.Name = name;
+                var np = new Policy { Name = name, Description = src.Description, Kind = kind, Json = Json.Serialize(settings), UpdatedBy = "system" };
+                db.Policies.Add(np);
+                foreach (var a in assignments) db.PolicyAssignments.Add(new PolicyAssignment { PolicyId = np.Id, TargetType = a.TargetType, TargetId = a.TargetId });
+                moved++;
+            }
+            // the monitoring policy keeps everything except the blocking
+            model.Block = new BlockSettings();
+            model.Collectors.UsbBlock = false;
+            src.Json = Json.Serialize(model);
+            src.Version++;
+            if (!src.IsDefault) await db.PolicyAssignments.Where(a => a.PolicyId == src.Id).ExecuteDeleteAsync();
+        }
+        if (moved == 0) return;
+        await db.SaveChangesAsync();
+        log.LogInformation("Moved blocking from monitoring policies into {Count} block policies", moved);
     }
 
     /// <summary>
@@ -284,11 +338,10 @@ public static class Seeder
                 Name = "Default", Description = "Baseline monitoring for all company devices", IsDefault = true,
                 Json = Json.Serialize(PolicyService.DefaultPolicy()), UpdatedBy = "system"
             });
-            var strict = PolicyService.DefaultPolicy();
-            strict.Name = "Restricted (USB blocked)";
-            strict.Collectors.UsbBlock = true;
-            strict.Collectors.CaptureWindowTitles = "none";
-            db.Policies.Add(new Policy { Name = "Restricted (USB blocked)", Description = "Finance & cashier counters", Json = Json.Serialize(strict), UpdatedBy = "system" });
+            var usb = PolicyService.DefaultPolicy();
+            usb.Name = "Block USB drives";
+            usb.Collectors.UsbBlock = true;
+            db.Policies.Add(new Policy { Name = "Block USB drives", Description = "Finance & cashier counters", Kind = PolicyKinds.Usb, Json = Json.Serialize(usb), UpdatedBy = "system" });
         }
 
         if (!await db.AlertRules.AnyAsync())
@@ -307,6 +360,12 @@ public static class Seeder
         if (!await db.AlertRules.AnyAsync(r => r.Type == "agentSilent"))
         {
             db.AlertRules.Add(new AlertRule { Name = "Agent silent > 24 h (possible removal)", Type = "agentSilent", Threshold = 24, Severity = "critical", NotifyEmail = true, NotifyWebhook = true });
+            await db.SaveChangesAsync();
+        }
+        await MigrateLegacyBlockingAsync(db, log);
+        if (!await db.AlertRules.AnyAsync(r => r.Type == "blocked"))
+        {
+            db.AlertRules.Add(new AlertRule { Name = "Blocked application or website", Type = "blocked", Severity = "info" });
             await db.SaveChangesAsync();
         }
         // Local development: a well-known enrollment token so `dotnet run` of the agent enrolls itself

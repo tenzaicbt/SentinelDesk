@@ -23,6 +23,7 @@ const ruleTypes: Record<string, { label: string; threshold?: string; parameter?:
   tamper: { label: 'Tamper attempt (stop/kill/uninstall/registry/binary change)' },
   category: { label: 'Website category visited', parameter: 'Comma-separated categories, e.g. Gaming, Streaming' },
   usb: { label: 'USB storage connected' },
+  blocked: { label: 'Blocked application or website (attempt to open it)' },
 }
 
 export default function Alerts() {

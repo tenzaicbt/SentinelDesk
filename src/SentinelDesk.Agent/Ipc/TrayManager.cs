@@ -5,6 +5,8 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using SentinelDesk.Agent.Core;
+using SentinelDesk.Agent.Enforcement;
+using SentinelDesk.Agent.Live;
 using SentinelDesk.Agent.Native;
 using SentinelDesk.Agent.Pipeline;
 using SentinelDesk.Shared;
@@ -16,21 +18,24 @@ namespace SentinelDesk.Agent.Ipc;
 /// no control verbs (no stop/disable) and, when running as a service, only the signed tray binary from the install
 /// folder is accepted as a client. Also (re)launches the tray in every interactive session.
 /// </summary>
-public sealed class TrayManager(AgentState state, TelemetryAggregator agg, PolicyStore policy, AgentConfig config, ILogger<TrayManager> log) : BackgroundService
+public sealed class TrayManager(AgentState state, TelemetryAggregator agg, PolicyStore policy, AgentConfig config, BlockEnforcer blocker,
+    ServerClient server, IServiceProvider services, ILogger<TrayManager> log) : BackgroundService
 {
     private readonly ConcurrentDictionary<Guid, Client> _clients = new();
     private readonly ConcurrentDictionary<int, DateTime> _launched = new();
 
-    private sealed class Client(NamedPipeServerStream pipe, int sessionId)
+    private sealed class Client(NamedPipeServerStream pipe, int sessionId, int pid)
     {
         public NamedPipeServerStream Pipe { get; } = pipe;
         public int SessionId { get; set; } = sessionId;
+        public int Pid { get; } = pid;
         public SemaphoreSlim WriteLock { get; } = new(1);
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         policy.Changed += p => { _ = BroadcastAsync(ConfigMessage()); };
+        blocker.Notify += (title, body) => { _ = NotifyAsync(title, body); };
         _ = Task.Run(() => LauncherLoop(ct), ct);
         _ = Task.Run(() => StatusLoop(ct), ct);
 
@@ -70,10 +75,12 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
     {
         var id = Guid.NewGuid();
         var sessionId = -1;
+        var clientPid = -1;
         try
         {
             if (NativeMethods.GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out var pid))
             {
+                clientPid = (int)pid;
                 using var proc = Process.GetProcessById((int)pid);
                 sessionId = proc.SessionId;
                 if (AgentPaths.IsSystem())
@@ -88,7 +95,7 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
                     }
                 }
             }
-            var client = new Client(pipe, sessionId);
+            var client = new Client(pipe, sessionId, clientPid);
             _clients[id] = client;
             await SendAsync(client, ConfigMessage());
             await SendAsync(client, StatusMessage());
@@ -132,6 +139,14 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
                     state.CurrentTitle = msg.CurrentApp is null ? null : policy.FilterTitle(msg.CurrentApp, msg.CurrentTitle);
                 }
                 break;
+            case "blocked" when msg.CurrentApp is { Length: > 0 } blockedApp:
+                // sent by the tray's IFEO notice when Windows refused to start a blocked program
+                if (BlockRules.AppRules(policy.Current.Block).Any(r => BlockRules.WildcardMatch(Path.GetFileName(blockedApp), r)))
+                    blocker.ReportBlockedApp(blockedApp, msg.User ?? state.CurrentUser);
+                break;
+            case "reenroll":
+                _ = Task.Run(() => ReenrollAsync(client, msg));
+                break;
             case "usage" when c.AppUsage && allowed && msg.Usage is not null:
                 foreach (var u in msg.Usage.Take(500))
                 {
@@ -173,6 +188,63 @@ public sealed class TrayManager(AgentState state, TelemetryAggregator agg, Polic
         Type = "status", State = state.ConnectionState, StatusText = state.StatusDetail, Server = config.ServerUrl,
         LastUploadUtc = state.LastUploadUtc, QueueDepth = state.QueueDepth, AgentVersion = AgentInfo.Version
     };
+
+    private readonly SemaphoreSlim _reenrollLock = new(1);
+    private readonly ConcurrentQueue<DateTime> _reenrollAttempts = new();
+
+    /// <summary>
+    /// Re-enrolls this device with a new enrollment token, entered by an administrator in the tray ("Reconnect to server").
+    /// Only accepted from the signed tray binary running elevated as an administrator. A failure keeps the current connection.
+    /// </summary>
+    private async Task ReenrollAsync(Client client, PipeMessage msg)
+    {
+        async Task Reply(bool ok, string text)
+        {
+            log.LogInformation("Reconnect request: {Result}", text);
+            await SendAsync(client, new PipeMessage { Type = "reenrollResult", State = ok ? "ok" : "error", StatusText = text, Server = config.ServerUrl });
+        }
+
+        if (client.Pid <= 0 || !NativeMethods.IsElevatedAdministrator(client.Pid))
+        {
+            agg.AddEvent(new AgentEvent(DateTime.UtcNow, "tamper.reenrollDenied", "warning", $"Reconnect attempted without administrator rights by {msg.User ?? state.CurrentUser ?? "unknown user"}"));
+            await Reply(false, "Administrator rights are needed. Choose \"Reconnect to server\" again and approve the Windows prompt.");
+            return;
+        }
+        // at most 5 attempts in 10 minutes
+        var now = DateTime.UtcNow;
+        while (_reenrollAttempts.TryPeek(out var t) && now - t > TimeSpan.FromMinutes(10)) _reenrollAttempts.TryDequeue(out _);
+        if (_reenrollAttempts.Count >= 5) { await Reply(false, "Too many attempts. Wait 10 minutes and try again."); return; }
+        _reenrollAttempts.Enqueue(now);
+
+        var token = msg.Token?.Trim() ?? "";
+        if (token.Length is < 6 or > 200) { await Reply(false, "Paste the enrollment token from the console (it starts with SD-)."); return; }
+        var url = string.IsNullOrWhiteSpace(msg.Server) ? config.ServerUrl : msg.Server.Trim().TrimEnd('/');
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http"))
+        { await Reply(false, "The server address is not valid, e.g. https://monitor.company.lk:5443"); return; }
+        var sameServer = string.Equals(url, config.ServerUrl, StringComparison.OrdinalIgnoreCase);
+
+        if (!await _reenrollLock.WaitAsync(0)) { await Reply(false, "A reconnect is already in progress."); return; }
+        try
+        {
+            // a new server address needs its certificate trusted again; the same server keeps its pinned certificate
+            if (!sameServer) config.PinnedServerCertSha256 = null;
+            await Enrollment.EnrollAsync(url, token, null, trustOnFirstUse: !sameServer && msg.TrustServer, log, CancellationToken.None, target: config);
+            server.Reset();
+            services.GetRequiredService<HeartbeatWorker>().Kick();
+            agg.AddEvent(new AgentEvent(DateTime.UtcNow, "agent.reconnected", "info",
+                $"Device reconnected with a new enrollment token by {msg.User ?? "an administrator"}{(sameServer ? "" : $" (server changed to {url})")}"));
+            await Reply(true, config.Status == "active" ? "Reconnected. This computer is sending data again."
+                : "Reconnected. An administrator must approve this computer in the console (Devices).");
+        }
+        catch (Exception ex)
+        {
+            var reason = ex.Message.Contains("401") || ex.Message.Contains("403") || ex.Message.Contains("400") ? "The token was not accepted. It may be expired, used up or mistyped. Create a new one in the console."
+                : ex is HttpRequestException or TaskCanceledException ? $"Could not reach {url}. Check the address and the network."
+                : ex.Message;
+            await Reply(false, reason);
+        }
+        finally { _reenrollLock.Release(); }
+    }
 
     public Task NotifyAsync(string title, string body) => BroadcastAsync(new PipeMessage { Type = "notify", Title = title, Body = body });
 

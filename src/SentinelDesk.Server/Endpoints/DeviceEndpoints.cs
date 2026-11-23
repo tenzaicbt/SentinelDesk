@@ -78,7 +78,7 @@ public static class DeviceEndpoints
             var path = new List<string>();
             var cursor = d.OrgUnitId;
             for (var i = 0; cursor is { } c && units.TryGetValue(c, out var ou) && i < 10; i++) { path.Insert(0, ou.Name); cursor = ou.ParentId; }
-            var (policy, ver) = await policies.ResolveAsync(d);
+            var (policy, restrictions, ver) = await policies.ResolveAsync(d);
             var today = IngestService.Today();
             var du = await db.Daily.AsNoTracking().FirstOrDefaultAsync(x => x.DeviceId == id && x.Day == today);
             var p = presence.Get(id);
@@ -88,7 +88,7 @@ public static class DeviceEndpoints
                 d.Id, d.Hostname, d.Domain, d.MachineId, d.Serial, d.Manufacturer, d.Model, d.Os, d.OsBuild, d.AgentVersion,
                 Status = d.Status.ToString().ToLowerInvariant(), d.EnrolledAt, d.LastSeenAt, d.LastIp, d.PublicIp, d.LoggedInUser,
                 d.OrgUnitId, OrgPath = path, d.Tags, d.CertThumbprint, d.CertExpiresAt, d.IsSimulated,
-                Policy = new { policy.Id, policy.Name, EffectiveVersion = ver, Applied = d.PolicyVersionApplied == ver || d.IsSimulated },
+                Policy = new { policy.Id, policy.Name, EffectiveVersion = ver, Applied = d.PolicyVersionApplied == ver || d.IsSimulated, Restrictions = restrictions.Select(r => new { r.Id, r.Name, r.Kind }) },
                 Online = presence.IsOnline(id),
                 Presence = p is null ? null : DashboardEndpoints.Sanitize(p, scope),
                 Today = new { BytesIn = Math.Max(du?.BytesIn ?? 0, p?.TodayIn ?? 0), BytesOut = Math.Max(du?.BytesOut ?? 0, p?.TodayOut ?? 0), ActiveSec = du?.ActiveSec ?? 0, IdleSec = du?.IdleSec ?? 0 },

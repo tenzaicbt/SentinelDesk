@@ -68,6 +68,18 @@ public static class Enrollment
     {
         AgentPaths.EnsureDataDir();
         var config = target ?? AgentConfig.Load();
+        var (oldUrl, oldPin) = (config.ServerUrl, config.PinnedServerCertSha256);
+        try { return await EnrollCoreAsync(config, serverUrl, token, pinnedSha256, trustOnFirstUse, log, ct); }
+        catch
+        {
+            config.ServerUrl = oldUrl;   // keep the working connection when re-enrolling fails
+            config.PinnedServerCertSha256 = oldPin;
+            throw;
+        }
+    }
+
+    private static async Task<AgentConfig> EnrollCoreAsync(AgentConfig config, string serverUrl, string token, string? pinnedSha256, bool trustOnFirstUse, ILogger log, CancellationToken ct)
+    {
         config.ServerUrl = serverUrl.TrimEnd('/');
         config.PinnedServerCertSha256 = pinnedSha256?.Replace(":", "").ToUpperInvariant() ?? config.PinnedServerCertSha256;
 

@@ -14,6 +14,8 @@ const Live = lazy(() => import('./pages/Live'))
 const Alerts = lazy(() => import('./pages/Alerts'))
 const Reports = lazy(() => import('./pages/Reports'))
 const Policies = lazy(() => import('./pages/Policies'))
+const PolicyNew = lazy(() => import('./pages/PolicyNew'))
+const PolicyDetail = lazy(() => import('./pages/PolicyDetail'))
 const Organization = lazy(() => import('./pages/Organization'))
 const Agents = lazy(() => import('./pages/Agents'))
 const Users = lazy(() => import('./pages/Users'))
@@ -46,6 +48,8 @@ export function App() {
             <Route path="alerts" element={<Alerts />} />
             <Route path="reports" element={<Reports />} />
             <Route path="policies" element={<Policies />} />
+            <Route path="policies/new" element={<PolicyNew />} />
+            <Route path="policies/:id" element={<PolicyDetail />} />
             <Route path="organization" element={<Organization />} />
             <Route path="agents" element={<Guard ok={can.super}><Agents /></Guard>} />
             <Route path="users" element={<Guard ok={can.super}><Users /></Guard>} />

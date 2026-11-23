@@ -83,6 +83,32 @@ internal static partial class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool OpenProcessToken(IntPtr process, uint desiredAccess, out IntPtr token);
+
+    /// <summary>True when the process runs elevated as a member of Administrators (a UAC-filtered token is not).</summary>
+    public static bool IsElevatedAdministrator(int pid)
+    {
+        const uint ProcessQueryLimitedInformation = 0x1000, TokenQuery = 0x0008, TokenDuplicate = 0x0002;
+        var proc = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        if (proc == IntPtr.Zero) return false;
+        try
+        {
+            if (!OpenProcessToken(proc, TokenQuery | TokenDuplicate, out var token)) return false;
+            try
+            {
+                using var id = new System.Security.Principal.WindowsIdentity(token);
+                return new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            finally { CloseHandle(token); }
+        }
+        finally { CloseHandle(proc); }
+    }
+
     // ── Named pipe client identification
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool GetNamedPipeClientProcessId(IntPtr pipe, out uint clientProcessId);

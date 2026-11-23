@@ -93,8 +93,23 @@ public sealed class Policy
     public int Version { get; set; } = 1;
     public string Json { get; set; } = "{}";
     public bool IsDefault { get; set; }
+    /// <summary>
+    /// monitoring = what is collected (one per device, most specific wins);
+    /// websites | apps | usb = a restriction that is added on top (a device gets every one that applies to it).
+    /// </summary>
+    [MaxLength(20)] public string Kind { get; set; } = PolicyKinds.Monitoring;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     [MaxLength(80)] public string? UpdatedBy { get; set; }
+}
+
+public static class PolicyKinds
+{
+    public const string Monitoring = "monitoring";
+    public const string Websites = "websites";
+    public const string Apps = "apps";
+    public const string Usb = "usb";
+    public static readonly string[] All = [Monitoring, Websites, Apps, Usb];
+    public static bool IsRestriction(string kind) => kind != Monitoring;
 }
 
 public sealed class PolicyAssignment

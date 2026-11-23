@@ -36,6 +36,8 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add("About SentinelDesk", null, (_, _) => MessageBox.Show(
             $"SentinelDesk Endpoint Agent {AgentVersion ?? "1.0.0"}\nDevice ID: {DeviceId ?? "not enrolled"}\n\nThis agent is managed by your organisation and cannot be closed by users.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Reconnect to server (administrator)…", null, (_, _) => StartReconnect());
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = true, Text = "SentinelDesk — starting…", Icon = Icons.For("starting") };
         _icon.DoubleClick += (_, _) => ShowStatus();
@@ -116,6 +118,16 @@ public sealed class TrayContext : ApplicationContext
         _status = new StatusForm();
         _status.Refresh(this);
         _status.Show();
+    }
+
+    /// <summary>Relaunches the tray elevated (Windows asks for administrator credentials) to show the reconnect window.</summary>
+    private static void StartReconnect()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, "--reconnect") { UseShellExecute = true, Verb = "runas" });
+        }
+        catch (System.ComponentModel.Win32Exception) { /* the administrator prompt was cancelled */ }
     }
 
     private void ShowNotice() => new NoticeForm(Settings, _locationEnabled).Show();

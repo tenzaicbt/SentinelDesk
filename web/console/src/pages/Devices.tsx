@@ -16,7 +16,7 @@ export interface DeviceRow {
   manufacturer?: string; model?: string; serial?: string; tags?: string; isSimulated: boolean; todayBytes: number
   cpu?: number; ram?: number; currentApp?: string; alerts: number
 }
-export interface OrgUnit { id: string; parentId?: string; name: string; type: string; devices: number; online: number; lat?: number; lng?: number; policy?: { policyId: string; name: string } }
+export interface OrgUnit { id: string; parentId?: string; name: string; type: string; devices: number; online: number; lat?: number; lng?: number; policies?: { policyId: string; name: string }[] }
 
 type SortKey = 'hostname' | 'user' | 'branch' | 'todayBytes' | 'cpu' | 'lastSeen'
 

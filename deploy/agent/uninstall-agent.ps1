@@ -28,6 +28,67 @@ $Marker     = Join-Path $DataDir 'uninstall.authorized'
 $TaskName   = 'SentinelDesk-Uninstall'
 $identity   = [Security.Principal.WindowsIdentity]::GetCurrent()
 
+# Removes every application and website block the agent applied (policy "Blocking"), so nothing stays blocked
+# after uninstall. Runs after the services are stopped (so the agent cannot re-apply) and before the data folder is deleted.
+function Remove-SentinelDeskBlocks {
+    # applications: Image File Execution Options entries marked as ours, in both registry views
+    foreach ($root in 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options',
+                      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options') {
+        Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+            $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+            if ($null -ne $props -and $null -ne $props.SentinelDeskBlock) {
+                Remove-ItemProperty $_.PSPath -Name Debugger, SentinelDeskBlock -ErrorAction SilentlyContinue
+                $k = Get-Item $_.PSPath -ErrorAction SilentlyContinue
+                if ($k -and $k.ValueCount -eq 0 -and $k.SubKeyCount -eq 0) { Remove-Item $_.PSPath -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+    # websites: browser URL block lists - remove only the entries the agent wrote, keep any others and renumber
+    $stateFile = Join-Path $DataDir 'block-state.json'
+    if (Test-Path $stateFile) {
+        try {
+            $st = Get-Content -Raw $stateFile | ConvertFrom-Json
+            foreach ($p in $st.browser.PSObject.Properties) {
+                $path = "HKLM:\$($p.Name)"
+                if (-not (Test-Path $path)) { continue }
+                $ours = @($p.Value)
+                $item = Get-Item $path
+                $keep = @($item.GetValueNames() | Sort-Object { [int]($_ -as [int]) } | ForEach-Object { $item.GetValue($_) } | Where-Object { $_ -and $ours -notcontains $_ })
+                if ($keep.Count -eq 0) { Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue; continue }
+                foreach ($n in $item.GetValueNames()) { Remove-ItemProperty $path -Name $n -ErrorAction SilentlyContinue }
+                for ($i = 0; $i -lt $keep.Count; $i++) { New-ItemProperty $path -Name ($i + 1) -Value $keep[$i] -PropertyType String -Force | Out-Null }
+            }
+            # browsers' secure DNS: restore the values that were there before the agent turned it off
+            foreach ($p in $st.dnsPrevious.PSObject.Properties) {
+                $path, $name = $p.Name -split '\|', 2
+                $reg = "HKLM:\$path"
+                if (-not (Test-Path $reg)) { continue }
+                if ($null -eq $p.Value) { Remove-ItemProperty $reg -Name $name -ErrorAction SilentlyContinue }
+                elseif ($name -in 'Enabled', 'Locked') { Set-ItemProperty $reg -Name $name -Value ([int]$p.Value) -Type DWord }
+                else { Set-ItemProperty $reg -Name $name -Value $p.Value -Type String }
+                $k = Get-Item $reg -ErrorAction SilentlyContinue
+                if ($path -like '*DNSOverHTTPS' -and $k -and $k.ValueCount -eq 0 -and $k.SubKeyCount -eq 0) { Remove-Item $reg -Force -ErrorAction SilentlyContinue }
+            }
+        } catch { Write-Warning "Could not clean the browser block lists: $_" }
+    }
+    # websites: the managed section of the hosts file
+    $hosts = Join-Path $env:windir 'System32\drivers\etc\hosts'
+    if (Test-Path $hosts) {
+        $lines = @(Get-Content $hosts)
+        $start = -1; $end = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($start -lt 0 -and $lines[$i] -like '# BEGIN SentinelDesk block list*') { $start = $i }
+            elseif ($start -ge 0 -and $lines[$i].TrimEnd() -eq '# END SentinelDesk block list') { $end = $i; break }
+        }
+        if ($start -ge 0) {
+            if ($end -lt 0) { $end = $lines.Count - 1 }
+            $rest = for ($i = 0; $i -lt $lines.Count; $i++) { if ($i -lt $start -or $i -gt $end) { $lines[$i] } }
+            Set-Content -Path $hosts -Value @($rest) -Encoding ascii
+            & { $ErrorActionPreference = 'Continue'; ipconfig.exe /flushdns 2>&1 | Out-Null }
+        }
+    }
+}
+
 function Remove-SentinelDesk {
     Set-Content -Path $Marker -Value "authorized $(Get-Date -Format o)" -Force
     foreach ($svc in 'SentinelDeskGuard', 'SentinelDeskAgent') {
@@ -38,6 +99,7 @@ function Remove-SentinelDesk {
         }
     }
     Get-Process SentinelDesk.Tray, SentinelDesk.Agent, SentinelDesk.Guard -ErrorAction SilentlyContinue | Stop-Process -Force
+    Remove-SentinelDeskBlocks
     foreach ($mode in 'Minimal', 'Network') {
         foreach ($svc in 'SentinelDeskAgent', 'SentinelDeskGuard') {
             Remove-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\$mode\$svc" -Recurse -Force -ErrorAction SilentlyContinue

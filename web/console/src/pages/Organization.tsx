@@ -58,7 +58,7 @@ export default function Organization() {
           <Icon className="size-4 text-muted" />
           <Link to={`/devices?orgUnitId=${u.id}`} className="font-medium hover:text-brand-ink">{u.name}</Link>
           <span className="text-xs capitalize text-muted">{u.type}</span>
-          {u.policy && <Badge tone="brand">{u.policy.name}</Badge>}
+          {u.policies?.map((pp) => <Badge key={pp.policyId} tone="critical">{pp.name}</Badge>)}
           <span className="ml-auto text-xs tabular text-fg-2"><span className="font-medium text-fg">{t.online}</span>/{t.devices} online</span>
           {can.super && (
             <span className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">

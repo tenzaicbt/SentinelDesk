@@ -11,7 +11,7 @@ namespace SentinelDesk.Server.Endpoints;
 public static class ManagementEndpoints
 {
     public sealed record OrgUnitRequest(string Name, string Type, Guid? ParentId, double? Lat, double? Lng);
-    public sealed record PolicyRequest(string Name, string? Description, AgentPolicy Settings);
+    public sealed record PolicyRequest(string Name, string? Description, AgentPolicy Settings, string? Kind = null);
     public sealed record AssignRequest(string TargetType, Guid TargetId);
     public sealed record RuleRequest(string Name, string Type, double Threshold, string? Parameter, string Severity, bool Enabled, bool NotifyEmail, bool NotifyWebhook);
     public sealed record TokenRequest(string Name, Guid? OrgUnitId, int Days, int Uses, bool AutoApprove);
@@ -38,13 +38,16 @@ public static class ManagementEndpoints
             var allowed = await scope.UnitsAsync();
             var devices = await db.Devices.AsNoTracking().Where(d => d.Status != DeviceStatus.Retired).Select(d => new { d.Id, d.OrgUnitId }).ToListAsync();
             var assignments = await db.PolicyAssignments.AsNoTracking().Where(a => a.TargetType == "orgUnit").ToListAsync();
-            var policies = await db.Policies.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
+            var policyRows = await db.Policies.AsNoTracking().ToDictionaryAsync(p => p.Id);
+            var policies = policyRows.ToDictionary(kv => kv.Key, kv => kv.Value.Name);
+            // the org page shows each unit's monitoring policy; restriction policies stack and are listed on the policy pages
+            assignments = assignments.Where(a => policyRows.TryGetValue(a.PolicyId, out var pr) && PolicyKinds.IsRestriction(pr.Kind)).ToList();
             return Results.Ok(units.Where(u => allowed is null || allowed.Contains(u.Id)).Select(u => new
             {
                 u.Id, u.ParentId, u.Name, u.Type, u.Lat, u.Lng,
                 Devices = devices.Count(d => d.OrgUnitId == u.Id),
                 Online = devices.Count(d => d.OrgUnitId == u.Id && presence.IsOnline(d.Id)),
-                Policy = assignments.FirstOrDefault(a => a.TargetId == u.Id) is { } a ? new { a.PolicyId, Name = policies.GetValueOrDefault(a.PolicyId) } : null
+                Policies = assignments.Where(a => a.TargetId == u.Id).Select(a => new { a.PolicyId, Name = policies.GetValueOrDefault(a.PolicyId) }).ToList()
             }).OrderBy(u => u.Name));
         }).RequireAuthorization("Console");
 
@@ -85,17 +88,41 @@ public static class ManagementEndpoints
     }
 
     // ───────────── Policies ─────────────
+    /// <summary>A restriction policy only keeps the part it is about; the rest of its document is ignored when merging.</summary>
+    private static void ForKind(string kind, AgentPolicy s)
+    {
+        if (!PolicyKinds.IsRestriction(kind)) return;
+        var b = s.Block;
+        s.Block = kind switch
+        {
+            PolicyKinds.Websites => new BlockSettings { Urls = b.Urls, Categories = b.Categories },
+            PolicyKinds.Apps => new BlockSettings { Apps = b.Apps, NotifyUser = b.NotifyUser, Message = b.Message },
+            _ => new BlockSettings(),
+        };
+        s.Collectors.UsbBlock = kind == PolicyKinds.Usb;
+    }
+
+    /// <summary>Validates and normalises the block lists in place; returns a 400 listing the problems, or null.</summary>
+    private static IResult? BlockProblem(AgentPolicy settings)
+    {
+        settings.Block ??= new BlockSettings();
+        var errors = BlockRules.Sanitize(settings.Block);
+        return errors.Count == 0 ? null
+            : Results.Problem(string.Join(" · ", errors.Distinct().Take(10)), statusCode: 400, title: "Invalid blocking rules");
+    }
+
     private static void MapPolicies(WebApplication app)
     {
         app.MapGet("/api/policies", async (AppDb db) =>
         {
-            var policies = await db.Policies.AsNoTracking().OrderByDescending(p => p.IsDefault).ThenBy(p => p.Name).ToListAsync();
+            // the console manages block policies only; the Default (monitoring) policy is the hidden base of every device
+            var policies = await db.Policies.AsNoTracking().Where(p => p.Kind != PolicyKinds.Monitoring).OrderBy(p => p.Name).ToListAsync();
             var assignments = await db.PolicyAssignments.AsNoTracking().ToListAsync();
             var units = await db.OrgUnits.AsNoTracking().ToDictionaryAsync(o => o.Id, o => o.Name);
             var devices = await db.Devices.AsNoTracking().ToDictionaryAsync(d => d.Id, d => d.Hostname);
             return Results.Ok(policies.Select(p => new
             {
-                p.Id, p.Name, p.Description, p.Version, p.IsDefault, p.UpdatedAt, p.UpdatedBy,
+                p.Id, p.Name, p.Description, p.Version, p.IsDefault, p.Kind, p.UpdatedAt, p.UpdatedBy,
                 Settings = Json.Deserialize<AgentPolicy>(p.Json),
                 Assignments = assignments.Where(a => a.PolicyId == p.Id).Select(a => new
                 {
@@ -109,8 +136,13 @@ public static class ManagementEndpoints
 
         w.MapPost("", async (PolicyRequest r, AppDb db, AccessScope scope, AuditService audit) =>
         {
+            var kind = r.Kind ?? "";
+            if (!PolicyKinds.All.Contains(kind) || !PolicyKinds.IsRestriction(kind))
+                return Results.Problem("Choose what the policy blocks: websites, applications or USB drives", statusCode: 400);
+            if (BlockProblem(r.Settings) is { } bad) return bad;
+            ForKind(kind, r.Settings);
             r.Settings.Name = r.Name;
-            var p = new Policy { Name = r.Name, Description = r.Description, Json = Json.Serialize(r.Settings), UpdatedBy = scope.Username };
+            var p = new Policy { Name = r.Name, Description = r.Description, Kind = kind, Json = Json.Serialize(r.Settings), UpdatedBy = scope.Username };
             db.Policies.Add(p);
             await db.SaveChangesAsync();
             await audit.LogAsync("policy.create", p.Name);
@@ -121,17 +153,23 @@ public static class ManagementEndpoints
         {
             var p = await db.Policies.FindAsync(id);
             if (p is null) return Results.NotFound();
+            if (BlockProblem(r.Settings) is { } bad) return bad;
+            ForKind(p.Kind, r.Settings);   // the type of a policy never changes
+            var before = Json.Deserialize<AgentPolicy>(p.Json)?.Block;
             r.Settings.Name = r.Name;
             p.Name = r.Name; p.Description = r.Description; p.Json = Json.Serialize(r.Settings);
             p.Version++; p.UpdatedAt = DateTime.UtcNow; p.UpdatedBy = scope.Username;
             await db.SaveChangesAsync();
             await audit.LogAsync("policy.update", p.Name, $"v{p.Version}");
+            if (before is null || Json.Serialize(before) != Json.Serialize(r.Settings.Block))
+                await audit.LogAsync("policy.blockList", p.Name,
+                    $"v{p.Version}: {r.Settings.Block.Apps.Count} apps, {r.Settings.Block.Urls.Count} websites, categories: {(r.Settings.Block.Categories.Count == 0 ? "none" : string.Join(", ", r.Settings.Block.Categories))}");
             // push to all live agents — each re-resolves and only downloads if its effective version changed
             await commands.BroadcastPolicyChangedAsync(presence.All.Select(x => x.DeviceId));
             return Results.Ok(new { p.Version });
         });
 
-        w.MapDelete("/{id:guid}", async (Guid id, AppDb db, AuditService audit) =>
+        w.MapDelete("/{id:guid}", async (Guid id, AppDb db, AuditService audit, CommandService commands, PresenceStore presence) =>
         {
             var p = await db.Policies.FindAsync(id);
             if (p is null) return Results.NotFound();
@@ -140,13 +178,19 @@ public static class ManagementEndpoints
             db.Policies.Remove(p);
             await db.SaveChangesAsync();
             await audit.LogAsync("policy.delete", p.Name);
+            await commands.BroadcastPolicyChangedAsync(presence.All.Select(x => x.DeviceId));   // e.g. a deleted block list stops applying
             return Results.Ok();
         });
 
         w.MapPost("/{id:guid}/assign", async (Guid id, AssignRequest r, AppDb db, AuditService audit, CommandService commands, PresenceStore presence) =>
         {
             if (r.TargetType is not ("orgUnit" or "device")) return Results.BadRequest();
-            await db.PolicyAssignments.Where(a => a.TargetType == r.TargetType && a.TargetId == r.TargetId).ExecuteDeleteAsync();
+            var policy = await db.Policies.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (policy is null) return Results.NotFound();
+            // a target has one monitoring policy (replaced) but can have any number of restriction policies (added)
+            if (!PolicyKinds.IsRestriction(policy.Kind)) return Results.Problem("Only block policies can be applied", statusCode: 400);
+            // a computer can have any number of block policies; only avoid adding the same one twice
+            await db.PolicyAssignments.Where(a => a.TargetType == r.TargetType && a.TargetId == r.TargetId && a.PolicyId == id).ExecuteDeleteAsync();
             db.PolicyAssignments.Add(new PolicyAssignment { PolicyId = id, TargetType = r.TargetType, TargetId = r.TargetId });
             await db.SaveChangesAsync();
             await audit.LogAsync("policy.assign", id.ToString(), $"{r.TargetType}:{r.TargetId}");

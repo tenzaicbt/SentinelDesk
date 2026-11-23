@@ -5,7 +5,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SentinelDesk.Guard</AssemblyName>
-    <Version>1.0.0</Version>
     <Product>SentinelDesk Guard</Product>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <InvariantGlobalization>true</InvariantGlobalization>

@@ -1,0 +1,2 @@
+Public - [C:\Users\yohan\Documents\GitHub\SentinelDesk\Git](https://github.com/tenzaicbt/SentinelDesk-EDM.git)
+Private - [C:\Users\yohan\Documents\GitHub\SentinelDesk]https://github.com/tenzaicbt/SentinelDesk.git)

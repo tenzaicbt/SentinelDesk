@@ -125,11 +125,7 @@ function Enrollment() {
               {org?.filter((o) => o.type !== 'organization').sort((a, b) => a.name.localeCompare(b.name)).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Valid for (days)"><Input type="number" min={1} max={365} value={form.days} onChange={(e) => setForm({ ...form, days: Number(e.target.value) })} /></Field>
-            <Field label="Max devices"><Input type="number" min={1} value={form.uses} onChange={(e) => setForm({ ...form, uses: Number(e.target.value) })} /></Field>
-          </div>
-          <Switch checked={form.autoApprove} onChange={(v) => setForm({ ...form, autoApprove: v })} label="Approve devices automatically" description="When off, new devices wait in “Pending approval” until an admin approves them" />
+          <p className="text-xs text-muted">The token works for 30 days and up to 500 devices. Devices that use it are approved automatically.</p>
         </div>
       </Modal>
     </div>

@@ -61,6 +61,9 @@ $stage = Join-Path ([IO.Path]::GetTempPath()) "sd-server-stage-$PID"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $pub 'server') $stage -Recurse
 Remove-Item (Join-Path $stage 'appsettings.Development.json') -ErrorAction SilentlyContinue   # holds the dev enroll token
+# the setup file is published next to the server zip (releases/SentinelDesk-Setup.exe); a second copy inside the zip
+# would push it over GitHub's 100 MB file limit. The README tells admins to copy it into the server's installer folder.
+Remove-Item -Recurse -Force (Join-Path $stage 'installer') -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath (Join-Path $rel "SentinelDesk-Server-$version-win-x64.zip") -Force
 Remove-Item -Recurse -Force $stage
 Copy-Item (Join-Path $pub 'SentinelDesk-Setup.exe'), $agentZip $rel

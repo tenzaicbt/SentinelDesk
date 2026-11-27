@@ -17,7 +17,7 @@
                     }
                     else if (!_installer.Available)
                     {
-                        <Callout Tone="warning">The setup file has not been built yet. On the server run <code class="font-mono">.\build.ps1</code> - it creates <code class="font-mono">publish\SentinelDesk-Setup.exe</code>, then reload this page.</Callout>
+                        <Callout Tone="warning">The setup file is missing. Copy <code class="font-mono">SentinelDesk-Setup.exe</code> from the release into the <code class="font-mono">installer</code> folder next to <code class="font-mono">SentinelDesk.Server.exe</code> (create the folder if needed), then reload this page. When you build from source, <code class="font-mono">.\build.ps1</code> puts it there.</Callout>
                     }
                     else
                     {

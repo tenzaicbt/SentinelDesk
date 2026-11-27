@@ -19,8 +19,6 @@ public static class ManagementEndpoints
     public sealed record UserRequest(string Username, string DisplayName, string? Email, string Role, Guid? OrgUnitScope, string? Password, bool Disabled);
     public sealed record RolloutRequest(int Percent);
     public sealed record IdsRequest(long[] Ids);
-    /// <summary>SentinelDesk-Setup.package.json, written by build.ps1: the agent package embedded in the setup file.</summary>
-    public sealed record SetupPackage(string Version, string Sha256);
 
     public static void MapManagementApi(this WebApplication app)
     {
@@ -460,7 +458,7 @@ public static class ManagementEndpoints
         g.MapPost("/installer", async (InstallerRequest r, AppDb db, ServerKeys keys, IWebHostEnvironment env, IConfiguration config, AccessScope scope, AuditService audit) =>
         {
             var path = FindInstaller(env, config);
-            if (path is null) return Results.Problem("SentinelDesk-Setup.exe has not been built yet - run build.ps1 on the server", statusCode: 404);
+            if (path is null) return Results.Problem("SentinelDesk-Setup.exe was not found - copy it into the installer folder next to SentinelDesk.Server.exe", statusCode: 404);
             if (!Uri.TryCreate(r.ServerUrl?.Trim(), UriKind.Absolute, out var server) || server.Scheme is not ("https" or "http"))
                 return Results.Problem("Enter the server address the offices will connect to, e.g. https://monitor.company.lk:5443", statusCode: 400);
             if (server.IsLoopback) return Results.Problem("'localhost' only works on this computer - use the server's network name or IP address", statusCode: 400);
@@ -485,9 +483,8 @@ public static class ManagementEndpoints
             };
             // Sign the embedded agent package (same "{version}|{sha256}" signature as uploaded releases): with it, this
             // installer can also upgrade an older agent, because the agent's Guard service only installs packages signed
-            // by this server. build.ps1 writes the package's version and hash next to the setup file.
-            var packageFile = Path.Combine(Path.GetDirectoryName(path)!, "SentinelDesk-Setup.package.json");
-            if (File.Exists(packageFile) && Json.Deserialize<SetupPackage>(await File.ReadAllTextAsync(packageFile)) is { Version.Length: > 0, Sha256.Length: > 0 } pkg)
+            // by this server. The version and hash are read from the setup file itself.
+            if (Services.SetupPackage.Read(path) is { } pkg)
             {
                 settings["packageVersion"] = pkg.Version;
                 settings["packageSha256"] = pkg.Sha256;

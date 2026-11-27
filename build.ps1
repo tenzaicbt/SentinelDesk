@@ -58,14 +58,10 @@ if ($LASTEXITCODE) { throw 'FluentSetup (installer) build failed' }
 $setup = Join-Path $out 'SentinelDesk-Setup.exe'
 Copy-Item (Join-Path $setupTmp 'full/SentinelDesk-Setup.exe') $setup -Force
 Remove-Item -Recurse -Force $setupTmp
-# version + hash of the embedded package: the server signs them into each office installer it hands out, which lets
-# that installer upgrade an agent (the Guard service checks the signature before it installs anything)
-$package = @{ version = $version; sha256 = (Get-FileHash $zip -Algorithm SHA256).Hash } | ConvertTo-Json -Compress
-$packageJson = Join-Path $out 'SentinelDesk-Setup.package.json'
-[IO.File]::WriteAllText($packageJson, $package)
-# the server serves configured copies of it from Console -> Agent management -> Office installer
+# the server serves configured copies of it from Console -> Agent management -> Office installer, and signs the
+# package inside each copy (read from the file itself) so office installers can also upgrade agents
 New-Item -ItemType Directory -Force (Join-Path $out 'server/installer') | Out-Null
-Copy-Item $setup, $packageJson (Join-Path $out 'server/installer') -Force
+Copy-Item $setup (Join-Path $out 'server/installer') -Force
 
 Write-Host "`nOK Done" -ForegroundColor Green
 Write-Host "  Server : $out\server\SentinelDesk.Server.exe"

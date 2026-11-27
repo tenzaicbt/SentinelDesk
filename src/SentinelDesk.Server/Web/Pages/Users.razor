@@ -1,0 +1,171 @@
+@page "/users"
+@inherits ConsolePage
+
+<PageHeader Title="Admin users" Icon="Users" Subtitle="Role-based access control with optional branch scoping">
+    <Actions><Btn Variant="primary" Icon="Plus" OnClick="() => _edit = new UserEdit()">Add user</Btn></Actions>
+</PageHeader>
+<div class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    @foreach (var (role, text) in Roles)
+    {
+        <Card><Badge Tone="brand">@role</Badge><p class="mt-2 text-xs text-muted">@text</p></Card>
+    }
+</div>
+<Card Pad="false">
+    @if (_data is null)
+    {
+        <div class="p-4"><Skeleton Class="h-48" /></div>
+    }
+    else
+    {
+        <DataTable>
+            <thead><tr><th>User</th><th>Role</th><th>Scope</th><th>MFA</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var u in _data)
+                {
+                    <tr @key="u.Id">
+                        <td><div class="font-medium">@u.DisplayName</div><div class="text-xs text-muted">@u.Username@(u.Email is { Length: > 0 } ? $" · {u.Email}" : "")</div></td>
+                        <td><Badge Tone="brand">@u.Role</Badge></td>
+                        <td class="text-fg-2">@(u.Scope ?? "Entire organization")</td>
+                        <td>
+                            @if (u.MfaEnabled)
+                            {
+                                <Badge Tone="good" Icon="ShieldCheck">On</Badge>
+                            }
+                            else
+                            {
+                                <Badge Tone="warning">Off</Badge>
+                            }
+                        </td>
+                        <td class="text-xs text-muted">@F.Ago(u.LastLoginAt)</td>
+                        <td>
+                            @if (u.Disabled)
+                            {
+                                <Badge>Disabled</Badge>
+                            }
+                            else if (u.Locked)
+                            {
+                                <Badge Tone="critical">Locked</Badge>
+                            }
+                            else
+                            {
+                                <Badge Tone="good">Active</Badge>
+                            }
+                        </td>
+                        <td class="whitespace-nowrap text-right">
+                            @if (u.MfaEnabled)
+                            {
+                                <Btn Size="sm" Variant="ghost" Icon="Smartphone" OnClick="() => ResetMfa(u)">Reset MFA</Btn>
+                            }
+                            <Btn Size="sm" Variant="ghost" Icon="Pencil" OnClick="() => Edit(u)">Edit</Btn>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </DataTable>
+    }
+</Card>
+<Modal Open="_edit is not null" OnClose="() => _edit = null" Title="@(_edit?.Id is not null ? $"Edit {_edit.Username}" : "New admin user")">
+    <ChildContent>
+        @if (_edit is { } e)
+        {
+            <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <Field Label="Username"><input class="@Cls.Input" @bind="e.Username" @bind:event="oninput" disabled="@(e.Id is not null)" /></Field>
+                    <Field Label="Display name"><input class="@Cls.Input" @bind="e.DisplayName" @bind:event="oninput" /></Field>
+                </div>
+                <Field Label="Email"><input class="@Cls.Input" type="email" @bind="e.Email" @bind:event="oninput" /></Field>
+                <div class="grid grid-cols-2 gap-3">
+                    <Field Label="Role"><Dropdown @bind-Value="e.Role" Class="w-full" Options="@Roles.Select(r => new Opt(r.Role, r.Role))" /></Field>
+                    <Field Label="Scope" Hint="Restricts visible devices"><Dropdown @bind-Value="e.Scope" Class="w-full" Options="@ScopeOptions" /></Field>
+                </div>
+                <Field Label="@(e.Id is not null ? "Reset password (optional)" : "Initial password")" Hint="User must change it at first sign-in. Min 10 chars, upper, lower and a digit.">
+                    <input class="@Cls.Input" type="password" @bind="e.Password" @bind:event="oninput" autocomplete="new-password" />
+                </Field>
+                @if (e.Id is not null)
+                {
+                    <Switch @bind-Checked="e.Disabled" Label="Disable account" />
+                }
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        <Btn OnClick="() => _edit = null">Cancel</Btn>
+        <Btn Variant="primary" OnClick="Save" Disabled="@(string.IsNullOrEmpty(_edit?.Username) || string.IsNullOrEmpty(_edit?.DisplayName))">Save</Btn>
+    </Footer>
+</Modal>
+
+@code {
+    private static readonly (string Role, string Text)[] Roles =
+    [
+        ("SuperAdmin", "Full control of the system"),
+        ("BranchAdmin", "Manage devices in their branch only"),
+        ("Auditor", "Read-only, including audit log"),
+        ("HrViewer", "Reports only — no websites, titles or live view"),
+    ];
+
+    private sealed class UserEdit
+    {
+        public Guid? Id { get; set; }
+        public string Username { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string? Email { get; set; }
+        public string Role { get; set; } = "BranchAdmin";
+        public string Scope { get; set; } = "";
+        public string? Password { get; set; }
+        public bool Disabled { get; set; }
+    }
+
+    private List<UserRow>? _data;
+    private List<OrgUnitRow>? _org;
+    private UserEdit? _edit;
+
+    private IEnumerable<Opt> ScopeOptions => [new("", "Entire organization"), .. Cls.Units(_org).Select(o => new Opt(o.Id.ToString(), o.Name))];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can.Super) { Nav.NavigateTo("/", replace: true); return; }
+        try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<UserRow>>("/api/users"); }
+        catch (ApiException e) { _data ??= []; Toast.Fail(e, "Could not load users"); }
+    }
+
+    private void Edit(UserRow u) => _edit = new UserEdit
+    {
+        Id = u.Id, Username = u.Username, DisplayName = u.DisplayName, Email = u.Email, Role = u.Role, Scope = u.OrgUnitScope?.ToString() ?? "", Disabled = u.Disabled,
+    };
+
+    private async Task Save()
+    {
+        if (_edit is not { } e) return;
+        var body = new
+        {
+            username = e.Username, displayName = e.DisplayName, email = e.Email, role = e.Role,
+            orgUnitScope = e.Scope == "" ? (Guid?)null : Guid.Parse(e.Scope), password = string.IsNullOrEmpty(e.Password) ? null : e.Password, disabled = e.Disabled,
+        };
+        try
+        {
+            if (e.Id is { } id) await Api.PutAsync($"/api/users/{id}", body);
+            else await Api.PostAsync("/api/users", body);
+            Toast.Success("User saved");
+            _edit = null;
+            await Load();
+        }
+        catch (ApiException ex) { Toast.Fail(ex); }
+    }
+
+    private async Task ResetMfa(UserRow u)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions
+            {
+                Title = $"Reset two-step verification for {u.Username}?", Message = "They sign in with their password only until they set it up again.",
+                ConfirmLabel = "Reset", Danger = true,
+            })) return;
+        try { await Api.PostAsync($"/api/users/{u.Id}/reset-mfa"); await Load(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

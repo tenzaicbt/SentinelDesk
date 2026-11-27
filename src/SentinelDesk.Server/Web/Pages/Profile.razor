@@ -1,0 +1,98 @@
+@page "/profile"
+
+<PageHeader Title="Profile &amp; security" Icon="UserCog" Subtitle="Manage your sign-in credentials" />
+<div class="grid gap-3 lg:grid-cols-2">
+    <Card Title="Account">
+        <Kv>
+            <KvRow K="Username" V="@Session.Me?.Username" />
+            <KvRow K="Name" V="@Session.Me?.DisplayName" />
+            <KvRow K="Role"><Badge Tone="brand">@Session.Me?.Role</Badge></KvRow>
+            <KvRow K="Scope" V="@(Session.Me?.ScopeName ?? "Entire organization")" />
+        </Kv>
+    </Card>
+    <Card Title="Two-step verification" Subtitle="TOTP authenticator (Microsoft / Google Authenticator)">
+        <Actions>
+            @if (Session.Me?.MfaEnabled == true)
+            {
+                <Badge Tone="good" Icon="ShieldCheck">Enabled</Badge>
+            }
+            else
+            {
+                <Badge Tone="warning">Not enabled</Badge>
+            }
+        </Actions>
+        <ChildContent>
+            @if (Session.Me?.MfaEnabled == true)
+            {
+                <div class="space-y-3">
+                    <p class="text-sm text-fg-2">Your account requires a verification code at every sign-in.</p>
+                    <Btn OnClick="Disable">Disable</Btn>
+                </div>
+            }
+            else if (_setup is not null)
+            {
+                <div class="flex flex-col gap-3 sm:flex-row">
+                    <div class="rounded-xl bg-white p-3 self-start"><QrCode Value="@_setup.Uri" /></div>
+                    <div class="flex-1 space-y-3">
+                        <p class="text-sm text-fg-2">Scan the QR code, or enter this key manually:</p>
+                        <code class="block break-all rounded-lg bg-panel-2 px-3 py-2 font-mono text-xs">@_setup.Secret</code>
+                        <Field Label="6-digit code"><input class="@Cls.InputCls("font-mono tracking-widest")" @bind="_code" @bind:event="oninput" inputmode="numeric" maxlength="7" /></Field>
+                        <Btn Variant="primary" OnClick="Enable" Loading="_busy">Verify &amp; enable</Btn>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="space-y-3">
+                    <Callout Tone="warning">Administrators should protect console access with a second factor.</Callout>
+                    <Btn Variant="primary" OnClick="Start" Icon="Smartphone">Set up authenticator</Btn>
+                </div>
+            }
+        </ChildContent>
+    </Card>
+    <Card Title="Change password"><PasswordForm /></Card>
+</div>
+
+@code {
+    private MfaSetup? _setup;
+    private string _code = "";
+    private bool _busy;
+
+    private async Task Start()
+    {
+        try { _setup = await Api.PostAsync<MfaSetup>("/api/auth/mfa/setup"); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task Enable()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("/api/auth/mfa/enable", new { code = _code });
+            Toast.Success("Two-step verification enabled");
+            _setup = null; _code = "";
+            await Session.RefreshAsync();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+        finally { _busy = false; }
+    }
+
+    private async Task Disable()
+    {
+        var c = await Dialog.PromptAsync(new PromptOptions
+        {
+            Title = "Disable two-step verification", Message = "Enter a current code from your authenticator app to confirm.",
+            Label = "Authenticator code", Placeholder = "123456", InputMode = "numeric", AutoComplete = "one-time-code", MaxLength = 6,
+            ConfirmLabel = "Disable", Validate = v => System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{6}$") ? null : "Enter the 6-digit code",
+        });
+        if (c is null) return;
+        try
+        {
+            await Api.PostAsync("/api/auth/mfa/disable", new { code = c });
+            Toast.Success("Two-step verification disabled");
+            await Session.RefreshAsync();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

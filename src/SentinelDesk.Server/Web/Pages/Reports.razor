@@ -1,0 +1,240 @@
+@page "/reports"
+@inherits ConsolePage
+
+<PageHeader Title="Reports" Icon="FileBarChart2" Subtitle="Every export is recorded in the audit log">
+    <Actions><Btn Variant="primary" Icon="Download" OnClick="ExportCsv">Export CSV</Btn></Actions>
+</PageHeader>
+<Tabs Items="KindTabs" Value="@_kind" ValueChanged="SetKind" />
+
+<div class="my-4 flex flex-wrap items-end gap-3">
+    @if (Dated)
+    {
+        <Field Label="From"><DatePicker Value="@_from" Max="@_to" ValueChanged="v => SetRange(v, _to)" AriaLabel="From" Class="w-40" /></Field>
+        <Field Label="To"><DatePicker Value="@_to" Min="@_from" Max="@Fmt.Today()" ValueChanged="v => SetRange(_from, v)" AriaLabel="To" Class="w-40" /></Field>
+        <div class="flex gap-1 pb-0.5">
+            @foreach (var (label, from) in Presets)
+            {
+                <Btn Size="sm" Variant="@(_from == from && _to == Fmt.Today() ? "primary" : "ghost")" OnClick="() => SetRange(from, Fmt.Today())">@label</Btn>
+            }
+        </div>
+    }
+    <Field Label="Scope"><Dropdown Value="@_orgUnitId" ValueChanged="SetOrg" Options="@ScopeOptions" /></Field>
+    @if (_fetching)
+    {
+        <span class="pb-2 text-xs text-muted">Updating…</span>
+    }
+</div>
+
+@if (!_loaded)
+{
+    <Skeleton Class="h-96" />
+}
+else
+{
+    switch (_kind)
+    {
+        case "usage" when _usage is not null:
+            var totalMb = _usage.Rows.Sum(r => r.TotalMb);
+            <div class="grid gap-3 xl:grid-cols-3">
+                <Card Class="xl:col-span-2" Title="Daily totals" Subtitle="@($"{Mb(totalMb)} across {_usage.Rows.Count} devices")">
+                    <Actions><Legend Items="Legend.DownUp" /></Actions>
+                    <ChildContent>
+                        <AreaChart Rows="@_usage.Series.Select(s => new AreaChart.Row(s.Day, [s.BytesIn, s.BytesOut])).ToList()" Series="InOut" Height="240" Stacked="true" Total="true" XFormat="F.ShortDay" TipFormat="v => Fmt.Bytes(v)" />
+                    </ChildContent>
+                </Card>
+                <Card Title="By branch">
+                    <RankBars Rows="@_usage.ByBranch.Take(12).Select(b => new RankBars.Bar(b.Branch, b.Branch, b.TotalMb, $"{b.Devices} PCs"))" Format="Mb" />
+                </Card>
+                <Card Class="xl:col-span-3" Pad="false" Title="Per device">
+                    @if (_usage.Rows.Count == 0)
+                    {
+                        <Empty Title="No data in range" />
+                    }
+                    else
+                    {
+                        <DataTable>
+                            <thead><tr><th>Device</th><th class="hidden md:table-cell">Branch</th><th class="hidden md:table-cell">User</th><th class="text-right">Download</th><th class="text-right">Upload</th><th class="text-right">Total</th><th class="text-right">Active h</th><th class="text-right hidden sm:table-cell">Idle h</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _usage.Rows)
+                                {
+                                    <tr>
+                                        <td><a href="@($"/devices/{r.DeviceId}")" class="font-medium hover:text-brand-ink">@r.Hostname</a></td>
+                                        <td class="hidden text-fg-2 md:table-cell">@r.Branch</td>
+                                        <td class="hidden text-fg-2 md:table-cell">@Fmt.ShortUser(r.User)</td>
+                                        <td class="text-right tabular">@Mb(r.InMb)</td><td class="text-right tabular">@Mb(r.OutMb)</td>
+                                        <td class="text-right font-medium tabular">@Mb(r.TotalMb)</td>
+                                        <td class="text-right tabular">@F.Num(r.ActiveHours)</td><td class="hidden text-right tabular sm:table-cell">@F.Num(r.IdleHours)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </DataTable>
+                    }
+                </Card>
+            </div>
+            break;
+        case "apps" when _apps is not null:
+            <div class="grid gap-3 xl:grid-cols-3">
+                <Card Title="Top applications" Subtitle="Total active hours">
+                    <RankBars Rows="@_apps.Rows.Take(12).Select(r => new RankBars.Bar(r.App, Fmt.AppName(r.App), r.Hours))" Format="@(v => $"{F.Num(v)} h")" />
+                </Card>
+                <Card Class="xl:col-span-2" Pad="false" Title="All applications">
+                    <DataTable>
+                        <thead><tr><th>Application</th><th class="text-right">Active hours</th><th class="text-right">Devices</th><th class="text-right">Avg h / device</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in _apps.Rows)
+                            {
+                                <tr><td><span class="font-medium">@Fmt.AppName(r.App)</span> <span class="font-mono text-[11px] text-muted">@r.App</span></td><td class="text-right tabular">@F.Num(r.Hours)</td><td class="text-right tabular">@r.Devices</td><td class="text-right tabular">@F.Num(r.AvgHoursPerDevice)</td></tr>
+                            }
+                        </tbody>
+                    </DataTable>
+                </Card>
+            </div>
+            break;
+        case "web" when _web is not null:
+            <div class="grid gap-3 xl:grid-cols-3">
+                <Card Title="Categories">
+                    <RankBars Color="var(--series-7)" Rows="@_web.Categories.Select(c => new RankBars.Bar(c.Category, c.Category, c.Hits))" Format="v => F.Num(v)" />
+                </Card>
+                <Card Class="xl:col-span-2" Pad="false" Title="Domains">
+                    <DataTable>
+                        <thead><tr><th>Domain</th><th>Category</th><th class="text-right">Lookups</th><th class="text-right">Devices</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in _web.Rows.Take(300))
+                            {
+                                <tr><td class="font-medium">@r.Domain</td><td><Badge>@r.Category</Badge></td><td class="text-right tabular">@F.Num(r.Hits)</td><td class="text-right tabular">@r.Devices</td></tr>
+                            }
+                        </tbody>
+                    </DataTable>
+                </Card>
+            </div>
+            break;
+        case "inventory" when _inv is not null:
+            <Card Pad="false" Title="@($"{_inv.Rows.Count} devices")">
+                <DataTable>
+                    <thead><tr><th>Device</th><th>Model</th><th>Serial</th><th>OS</th><th class="text-right">RAM</th><th class="text-right">Disk</th><th>AV</th><th>Firewall</th><th>BitLocker</th><th>Last patch</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in _inv.Rows)
+                        {
+                            <tr>
+                                <td><div class="font-medium">@r.Hostname</div><div class="text-xs text-muted">@r.Branch</div></td>
+                                <td class="text-xs">@r.Manufacturer @r.Model</td><td class="font-mono text-xs">@r.Serial</td>
+                                <td class="text-xs">@r.Os<div class="text-muted">@r.OsBuild</div></td>
+                                <td class="text-right tabular">@(r.RamGb?.ToString() ?? "—") GB</td><td class="text-right tabular">@(r.DiskGb?.ToString() ?? "—") GB</td>
+                                <td>@YesNo(r.AvEnabled)</td><td>@YesNo(r.Firewall)</td>
+                                <td>
+                                    @if (r.BitLocker is not null)
+                                    {
+                                        <Badge Tone="@(r.BitLocker == "On" ? "good" : "warning")">@r.BitLocker</Badge>
+                                    }
+                                    else
+                                    {
+                                        @("—")
+                                    }
+                                </td>
+                                <td class="text-xs text-muted">@(r.LastPatch ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </DataTable>
+            </Card>
+            break;
+        case "software" when _sw is not null:
+            var sw = _sw.Rows.Where(x => _swq == "" || x.Name.Contains(_swq, StringComparison.OrdinalIgnoreCase)).ToList();
+            <Card Pad="false" Title="@($"{_sw.Rows.Count} distinct titles")">
+                <Actions><input class="@Cls.InputCls("w-56")" @bind="_swq" @bind:event="oninput" placeholder="Search…" /></Actions>
+                <ChildContent>
+                    <DataTable>
+                        <thead><tr><th>Software</th><th class="hidden md:table-cell">Publisher</th><th class="text-right">Installs</th><th>Versions</th></tr></thead>
+                        <tbody>
+                            @foreach (var x in sw.Take(500))
+                            {
+                                <tr><td class="font-medium">@x.Name</td><td class="hidden text-fg-2 md:table-cell">@x.Publisher</td><td class="text-right tabular">@x.Installs</td><td class="max-w-64 truncate font-mono text-xs text-muted">@x.Versions</td></tr>
+                            }
+                        </tbody>
+                    </DataTable>
+                </ChildContent>
+            </Card>
+            break;
+        default:
+            <Skeleton Class="h-96" />
+            break;
+    }
+}
+
+@code {
+    private static readonly ChartSeries[] InOut = [new("in", "Download", Series.Down), new("out", "Upload", Series.Up)];
+
+    private string _kind = "usage", _from = Fmt.DaysAgo(6), _to = Fmt.Today(), _orgUnitId = "", _swq = "";
+    private List<OrgUnitRow>? _org;
+    private bool _loaded, _fetching;
+    private UsageReport? _usage;
+    private AppsReport? _apps;
+    private WebReport? _web;
+    private InventoryReport? _inv;
+    private SoftwareReport? _sw;
+    private int _version;
+
+    private bool Dated => _kind is not ("inventory" or "software");
+
+    private static (string, string)[] Presets => [("Today", Fmt.Today()), ("7 days", Fmt.DaysAgo(6)), ("30 days", Fmt.DaysAgo(29)), ("90 days", Fmt.DaysAgo(89))];
+
+    private IEnumerable<TabItem> KindTabs =>
+    [
+        new("usage", "Data usage", "Wifi"), new("apps", "Application usage", "AppWindow"),
+        .. Session.Can.Web ? [new TabItem("web", "Website usage", "Globe")] : Array.Empty<TabItem>(),
+        new("inventory", "Hardware inventory", "Cpu"), new("software", "Software inventory", "Package"),
+    ];
+
+    private IEnumerable<Opt> ScopeOptions => [new("", "Whole organization"), .. Cls.Units(_org).Select(o => new Opt(o.Id.ToString(), o.Name))];
+
+    private static string Mb(double v) => v >= 1024 ? $"{(v / 1024).ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} GB" : $"{v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} MB";
+
+    private static RenderFragment YesNo(bool? v) => v is null ? @<text>—</text> : v.Value ? @<Badge Tone="good">Yes</Badge> : @<Badge Tone="critical">No</Badge>;
+
+    private string Query(bool csv = false) => ApiClient.Qs(("from", Dated ? _from : null), ("to", Dated ? _to : null), ("orgUnitId", _orgUnitId), ("format", csv ? "csv" : null));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+        await Load();
+    }
+
+    private async Task SetKind(string k) { _kind = k; await Load(); }
+    private async Task SetOrg(string v) { _orgUnitId = v; await Load(); }
+    private async Task SetRange(string from, string to) { _from = from; _to = to; await Load(); }
+
+    private async Task Load()
+    {
+        var v = ++_version;
+        _fetching = true;
+        StateHasChanged();
+        var url = $"/api/reports/{_kind}{Query()}";
+        try
+        {
+            switch (_kind)
+            {
+                case "usage": var u = await Api.GetAsync<UsageReport>(url); if (v == _version) _usage = u; break;
+                case "apps": var a = await Api.GetAsync<AppsReport>(url); if (v == _version) _apps = a; break;
+                case "web": var w = await Api.GetAsync<WebReport>(url); if (v == _version) _web = w; break;
+                case "inventory": var i = await Api.GetAsync<InventoryReport>(url); if (v == _version) _inv = i; break;
+                case "software": var s = await Api.GetAsync<SoftwareReport>(url); if (v == _version) _sw = s; break;
+            }
+        }
+        catch (ApiException e) { Toast.Fail(e, "Could not load the report"); }
+        finally
+        {
+            if (v == _version) { _fetching = false; _loaded = true; }
+        }
+    }
+
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var (bytes, name, type) = await Api.DownloadAsync($"/api/reports/{_kind}{Query(csv: true)}");
+            await SaveFileAsync(name, type, bytes);
+            Toast.Success("Export downloaded (opens in Excel)");
+        }
+        catch (ApiException) { Toast.Error("Export failed"); }
+    }
+}

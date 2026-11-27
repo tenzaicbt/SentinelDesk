@@ -1,0 +1,287 @@
+@page "/alerts"
+@inherits ConsolePage
+@inject LiveHub Hub
+
+<PageHeader Title="Alerts" Icon="Bell" Subtitle="Rule-based detection across the fleet · notifications by console, email and Teams/webhook" />
+<Tabs Items="@([new TabItem("alerts", "Alerts", "Bell"), new TabItem("rules", "Rules", "Settings2")])" @bind-Value="_tab" />
+<div class="mt-3">
+    @if (_tab == "alerts")
+    {
+        <Card Pad="false">
+            <div class="flex flex-wrap items-center gap-2 border-b border-line p-3">
+                <Segmented TValue="string" Value="_status" ValueChanged="SetStatus" Options="@([("open", "Open"), ("acknowledged", "Acknowledged"), ("resolved", "Resolved"), ("all", "All")])" />
+                <Dropdown Value="@_severity" ValueChanged="SetSeverity" Options="@SeverityFilter" />
+                @if (Session.Can.Write && _sel.Count > 0)
+                {
+                    <div class="ml-auto flex gap-2">
+                        <Btn Size="sm" Icon="Check" OnClick='() => Act("acknowledge", _sel.ToArray())'>Acknowledge @_sel.Count</Btn>
+                        <Btn Size="sm" Variant="primary" Icon="CheckCheck" OnClick='() => Act("resolve", _sel.ToArray())'>Resolve @_sel.Count</Btn>
+                    </div>
+                }
+            </div>
+            @if (_alerts is null)
+            {
+                <div class="p-4"><Skeleton Class="h-64" /></div>
+            }
+            else if (_alerts.Count == 0)
+            {
+                <Empty Icon="CheckCheck" Title="Nothing to review">No alerts match these filters.</Empty>
+            }
+            else
+            {
+                <DataTable>
+                    <thead>
+                        <tr>
+                            @if (Session.Can.Write)
+                            {
+                                <th class="w-8"><input type="checkbox" aria-label="Select all" checked="@(_sel.Count == _alerts.Count)" @onchange="e => SelectAll((bool)e.Value!)" /></th>
+                            }
+                            <th>Severity</th><th>Alert</th><th>Device</th><th class="hidden lg:table-cell">Rule</th><th>When</th><th>Status</th>
+                            @if (Session.Can.Write)
+                            {
+                                <th></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _alerts)
+                        {
+                            <tr @key="a.Id" class="hover:bg-panel-2/60">
+                                @if (Session.Can.Write)
+                                {
+                                    <td><input type="checkbox" aria-label="Select" checked="@_sel.Contains(a.Id)" @onchange="e => { if ((bool)e.Value!) _sel.Add(a.Id); else _sel.Remove(a.Id); }" /></td>
+                                }
+                                <td><SeverityBadge Severity="@a.Severity" /></td>
+                                <td>
+                                    <div class="font-medium">@a.Title</div>
+                                    @if (a.Details is not null)
+                                    {
+                                        <div class="max-w-md truncate text-xs text-muted">@a.Details</div>
+                                    }
+                                </td>
+                                <td><a href="@($"/devices/{a.DeviceId}")" class="text-brand-ink hover:underline">@a.Hostname</a></td>
+                                <td class="hidden text-xs text-fg-2 lg:table-cell">@a.Rule</td>
+                                <td class="whitespace-nowrap text-xs text-muted" title="@F.DateTimeText(a.TriggeredAt)">@F.Ago(a.TriggeredAt)</td>
+                                <td>
+                                    <Badge Tone="@(a.Status == "open" ? "critical" : a.Status == "acknowledged" ? "warning" : "good")">@a.Status</Badge>
+                                    @if (a.HandledBy is not null)
+                                    {
+                                        <div class="mt-0.5 text-[10px] text-muted">by @a.HandledBy</div>
+                                    }
+                                </td>
+                                @if (Session.Can.Write)
+                                {
+                                    <td class="whitespace-nowrap text-right">
+                                        @if (a.Status == "open")
+                                        {
+                                            <Btn Size="sm" Variant="ghost" OnClick='() => Act("acknowledge", [a.Id])'>Ack</Btn>
+                                        }
+                                        @if (a.Status != "resolved")
+                                        {
+                                            <Btn Size="sm" Variant="ghost" OnClick='() => Act("resolve", [a.Id])'>Resolve</Btn>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </DataTable>
+            }
+        </Card>
+    }
+    else
+    {
+        @if (Session.Can.Super)
+        {
+            <div class="mb-4 flex justify-end"><Btn Variant="primary" Icon="Plus" OnClick="NewRule">New rule</Btn></div>
+        }
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            @foreach (var r in _rules ?? [])
+            {
+                var t = RuleTypes.GetValueOrDefault(r.Type) ?? new RuleType(r.Type);
+                <Card @key="r.Id">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2"><SeverityBadge Severity="@r.Severity" /><span class="truncate font-medium">@r.Name</span></div>
+                            <p class="mt-1.5 text-xs text-muted">@t.Label@(t.Threshold is not null ? $" {F.Num(r.Threshold)} {t.Threshold}" : "")</p>
+                            @if (r.Parameter is { Length: > 0 })
+                            {
+                                <p class="mt-1 truncate text-xs text-fg-2">@r.Parameter</p>
+                            }
+                            <div class="mt-2 flex gap-1.5">
+                                @if (r.NotifyEmail)
+                                {
+                                    <Badge>Email</Badge>
+                                }
+                                @if (r.NotifyWebhook)
+                                {
+                                    <Badge>Webhook</Badge>
+                                }
+                                <Badge>Console</Badge>
+                            </div>
+                        </div>
+                        <Switch Checked="r.Enabled" CheckedChanged="_ => ToggleRule(r)" Disabled="!Session.Can.Super" />
+                    </div>
+                    @if (Session.Can.Super)
+                    {
+                        <div class="mt-3 flex gap-1 border-t border-line pt-3">
+                            <Btn Size="sm" Variant="ghost" Icon="Pencil" OnClick="() => EditRule(r)">Edit</Btn>
+                            <Btn Size="sm" Variant="ghost" Icon="Trash2" OnClick="() => DeleteRule(r)">Delete</Btn>
+                        </div>
+                    }
+                </Card>
+            }
+        </div>
+        <Modal Open="_edit is not null" OnClose="() => _edit = null" Title="@(_edit?.Id is not null ? "Edit rule" : "New alert rule")">
+            <ChildContent>
+                @if (_edit is { } e)
+                {
+                    var et = RuleTypes.GetValueOrDefault(e.Type) ?? new RuleType(e.Type);
+                    <div class="space-y-3">
+                        <Field Label="Name"><input class="@Cls.Input" @bind="e.Name" @bind:event="oninput" placeholder="e.g. Heavy data usage" /></Field>
+                        <Field Label="Condition"><Dropdown @bind-Value="e.Type" Class="w-full" Options="@RuleTypes.Select(kv => new Opt(kv.Key, kv.Value.Label))" /></Field>
+                        @if (et.Threshold is not null)
+                        {
+                            <Field Label="Threshold" Hint="@et.Threshold"><input class="@Cls.Input" type="number" @bind="e.Threshold" /></Field>
+                        }
+                        @if (et.Parameter is not null)
+                        {
+                            <Field Label="Match" Hint="@et.Parameter"><input class="@Cls.Input" @bind="e.Parameter" @bind:event="oninput" /></Field>
+                        }
+                        <Field Label="Severity"><Dropdown @bind-Value="e.Severity" Class="w-full" Options="@([new("info", "Info"), new("warning", "Warning"), new("critical", "Critical")])" /></Field>
+                        <div class="space-y-3 rounded-xl bg-panel-2 p-3">
+                            <Switch @bind-Checked="e.Enabled" Label="Enabled" />
+                            <Switch @bind-Checked="e.NotifyEmail" Label="Email notification" Description="Uses Notifications:Smtp settings on the server" />
+                            <Switch @bind-Checked="e.NotifyWebhook" Label="Teams / webhook notification" Description="Uses Notifications:WebhookUrl" />
+                        </div>
+                    </div>
+                }
+            </ChildContent>
+            <Footer>
+                <Btn OnClick="() => _edit = null">Cancel</Btn>
+                <Btn Variant="primary" OnClick="SaveRule" Disabled="string.IsNullOrEmpty(_edit?.Name)">Save rule</Btn>
+            </Footer>
+        </Modal>
+    }
+</div>
+
+@code {
+    private sealed record RuleType(string Label, string? Threshold = null, string? Parameter = null);
+
+    private static readonly Dictionary<string, RuleType> RuleTypes = new()
+    {
+        ["dataUsageDaily"] = new("Daily data usage above", "MB per device per day"),
+        ["agentOffline"] = new("Agent offline for", "minutes"),
+        ["agentSilent"] = new("Agent silent (possible removal) for", "hours"),
+        ["cpuHigh"] = new("Sustained CPU above", "% (10-minute average)"),
+        ["diskLow"] = new("System disk usage above", "%"),
+        ["software"] = new("Unapproved software installed", Parameter: "Comma-separated names (substring match)"),
+        ["tamper"] = new("Tamper attempt (stop/kill/uninstall/registry/binary change)"),
+        ["category"] = new("Website category visited", Parameter: "Comma-separated categories, e.g. Gaming, Streaming"),
+        ["usb"] = new("USB storage connected"),
+        ["blocked"] = new("Blocked application or website (attempt to open it)"),
+    };
+
+    private static readonly Opt[] SeverityFilter = [new("", "All severities"), new("critical", "Critical"), new("warning", "Warning"), new("info", "Info")];
+
+    private sealed class RuleEdit
+    {
+        public Guid? Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "dataUsageDaily";
+        public double Threshold { get; set; }
+        public string? Parameter { get; set; }
+        public string Severity { get; set; } = "warning";
+        public bool Enabled { get; set; } = true;
+        public bool NotifyEmail { get; set; }
+        public bool NotifyWebhook { get; set; }
+    }
+
+    private string _tab = "alerts", _status = "open", _severity = "";
+    private List<AlertRow>? _alerts;
+    private List<Data.AlertRule>? _rules;
+    private readonly HashSet<long> _sel = [];
+    private RuleEdit? _edit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Hub.Alert += OnAlert;
+        OnDispose(() => Hub.Alert -= OnAlert);
+        await Task.WhenAll(LoadAlerts(), LoadRules());
+    }
+
+    private void OnAlert(AlertMsg _) => UiAsync(LoadAlerts);
+
+    private async Task LoadAlerts()
+    {
+        try { _alerts = await Api.GetAsync<List<AlertRow>>($"/api/alerts?status={_status}{(_severity != "" ? $"&severity={_severity}" : "")}"); }
+        catch (ApiException e) { _alerts ??= []; Toast.Fail(e, "Could not load alerts"); }
+    }
+
+    private async Task LoadRules()
+    {
+        try { _rules = await Api.GetAsync<List<Data.AlertRule>>("/api/alert-rules"); } catch (ApiException) { _rules ??= []; }
+    }
+
+    private async Task SetStatus(string s) { _status = s; _sel.Clear(); await LoadAlerts(); }
+    private async Task SetSeverity(string s) { _severity = s; _sel.Clear(); await LoadAlerts(); }
+
+    private void SelectAll(bool on)
+    {
+        _sel.Clear();
+        if (on) foreach (var a in _alerts ?? []) _sel.Add(a.Id);
+    }
+
+    private async Task Act(string action, long[] ids)
+    {
+        try
+        {
+            await Api.PostAsync($"/api/alerts/{action}", new { ids });
+            Toast.Success($"{ids.Length} alert(s) {(action == "resolve" ? "resolved" : "acknowledged")}");
+            _sel.Clear();
+            await LoadAlerts();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private void NewRule() => _edit = new RuleEdit { Threshold = 2048 };
+
+    private void EditRule(Data.AlertRule r) => _edit = new RuleEdit
+    {
+        Id = r.Id, Name = r.Name, Type = r.Type, Threshold = r.Threshold, Parameter = r.Parameter, Severity = r.Severity,
+        Enabled = r.Enabled, NotifyEmail = r.NotifyEmail, NotifyWebhook = r.NotifyWebhook,
+    };
+
+    private async Task SaveRule()
+    {
+        if (_edit is not { } e) return;
+        var body = new { name = e.Name, type = e.Type, threshold = e.Threshold, parameter = e.Parameter, severity = e.Severity, enabled = e.Enabled, notifyEmail = e.NotifyEmail, notifyWebhook = e.NotifyWebhook };
+        try
+        {
+            if (e.Id is { } id) await Api.PutAsync($"/api/alert-rules/{id}", body);
+            else await Api.PostAsync("/api/alert-rules", body);
+            Toast.Success("Rule saved");
+            _edit = null;
+            await LoadRules();
+        }
+        catch (ApiException ex) { Toast.Fail(ex); }
+    }
+
+    private async Task ToggleRule(Data.AlertRule r)
+    {
+        if (!Session.Can.Super) return;
+        try
+        {
+            await Api.PutAsync($"/api/alert-rules/{r.Id}", new { r.Name, r.Type, r.Threshold, r.Parameter, r.Severity, enabled = !r.Enabled, r.NotifyEmail, r.NotifyWebhook });
+            await LoadRules();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task DeleteRule(Data.AlertRule r)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = $"Delete rule \"{r.Name}\"?", Message = "This can't be undone.", Danger = true })) return;
+        try { await Api.DeleteAsync($"/api/alert-rules/{r.Id}"); await LoadRules(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

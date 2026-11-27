@@ -1,0 +1,76 @@
+@page "/audit"
+@inherits ConsolePage
+
+<PageHeader Title="Audit log" Icon="ScrollText" Subtitle="Every console action — sign-ins, device views, exports, policy changes, commands" />
+<Card Pad="false">
+    <div class="flex flex-wrap gap-2 border-b border-line p-3">
+        <div class="relative w-64">
+            <Icon Name="Search" Class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+            <input class="@Cls.InputCls("pl-9")" value="@_actor" @oninput="ActorInput" placeholder="Actor…" />
+        </div>
+        <Dropdown Value="@_action" ValueChanged="SetAction" Options="@ActionOptions" />
+    </div>
+    @if (_data is null)
+    {
+        <div class="p-4"><Skeleton Class="h-64" /></div>
+    }
+    else if (_data.Count == 0)
+    {
+        <Empty Icon="ScrollText" Title="No entries" />
+    }
+    else
+    {
+        <DataTable>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th class="hidden md:table-cell">Details</th><th class="hidden lg:table-cell">IP</th></tr></thead>
+            <tbody>
+                @foreach (var e in _data)
+                {
+                    <tr @key="e.Id">
+                        <td class="whitespace-nowrap text-xs text-muted">@F.DateTimeText(e.At)</td>
+                        <td class="font-medium">@e.Actor</td>
+                        <td><Badge Tone="@Tone(e.Action)">@e.Action</Badge></td>
+                        <td class="max-w-56 truncate text-fg-2">@e.Target</td>
+                        <td class="hidden max-w-72 truncate text-xs text-muted md:table-cell">@e.Details</td>
+                        <td class="hidden font-mono text-xs text-muted lg:table-cell">@e.Ip</td>
+                    </tr>
+                }
+            </tbody>
+        </DataTable>
+    }
+</Card>
+
+@code {
+    private static readonly IEnumerable<Opt> ActionOptions =
+        [new("", "All actions"), .. new[] { "auth", "device", "policy", "report", "alert", "user", "enrollToken", "release", "org" }.Select(a => new Opt(a, a))];
+
+    private List<Data.AuditEntry>? _data;
+    private string _actor = "", _action = "";
+    private CancellationTokenSource? _debounce;
+
+    private static string Tone(string a) =>
+        a.StartsWith("auth.failed") || a.Contains("mfaFailed") ? "critical"
+        : a.Contains("uninstall") || a.Contains("delete") || a.Contains("purge") || a.Contains("retire") ? "warning"
+        : a.StartsWith("report") || a == "device.view" ? "neutral" : "brand";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can.Audit) { Nav.NavigateTo("/", replace: true); return; }
+        await Load();
+    }
+
+    private async Task ActorInput(ChangeEventArgs e)
+    {
+        _actor = e.Value?.ToString() ?? "";
+        _debounce?.Cancel();
+        var cts = _debounce = new CancellationTokenSource();
+        try { await Task.Delay(250, cts.Token); await Load(); } catch (TaskCanceledException) { }
+    }
+
+    private async Task SetAction(string a) { _action = a; await Load(); }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<Data.AuditEntry>>("/api/audit" + ApiClient.Qs(("actor", _actor), ("action", _action), ("limit", 1000))); }
+        catch (ApiException e) { _data ??= []; Toast.Fail(e, "Could not load the audit log"); }
+    }
+}

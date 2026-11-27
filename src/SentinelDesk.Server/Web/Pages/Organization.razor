@@ -1,0 +1,159 @@
+@page "/organization"
+
+<PageHeader Title="Organization" Icon="Building2" Subtitle="Head office → regions → branches → departments. Drives scoping, policy inheritance and reports.">
+    <Actions>
+        @if (Session.Can.Super)
+        {
+            <Btn Variant="primary" Icon="Plus" OnClick="AddUnit">Add unit</Btn>
+        }
+    </Actions>
+</PageHeader>
+<Card Pad="false">
+    @if (_data is null)
+    {
+        <div class="p-4"><Skeleton Class="h-80" /></div>
+    }
+    else
+    {
+        @foreach (var u in Children(null))
+        {
+            @Render(u, 0)
+        }
+    }
+</Card>
+<Modal Open="_edit is not null" OnClose="() => _edit = null" Title="@(_edit?.Id is not null ? "Edit unit" : "New unit")">
+    <ChildContent>
+        @if (_edit is { } e)
+        {
+            var isOrg = e.Type == "organization";
+            <div class="space-y-3">
+                <Field Label="Name"><input class="@Cls.Input" data-autofocus="" @bind="e.Name" @bind:event="oninput" /></Field>
+                <div class="grid grid-cols-2 gap-3">
+                    <Field Label="Type">
+                        <Dropdown @bind-Value="e.Type" Class="w-full" Disabled="isOrg"
+                                  Options="@(isOrg ? [new Opt("region", "Region / province"), new Opt("branch", "Branch"), new Opt("department", "Department"), new Opt("organization", "Organization")] : TypeOptions)" />
+                    </Field>
+                    <Field Label="Parent">
+                        <Dropdown @bind-Value="e.ParentId" Class="w-full" Disabled="isOrg" Options="@((_data ?? []).Where(u => u.Id.ToString() != e.Id).Select(u => new Opt(u.Id.ToString(), u.Name)))" />
+                    </Field>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <Field Label="Latitude" Hint="For the branch map (optional)"><input class="@Cls.Input" type="number" step="0.0001" @bind="e.Lat" /></Field>
+                    <Field Label="Longitude"><input class="@Cls.Input" type="number" step="0.0001" @bind="e.Lng" /></Field>
+                </div>
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        <Btn OnClick="() => _edit = null">Cancel</Btn>
+        <Btn Variant="primary" OnClick="Save">Save</Btn>
+    </Footer>
+</Modal>
+
+@code {
+    private static readonly Opt[] TypeOptions = [new("region", "Region / province"), new("branch", "Branch"), new("department", "Department")];
+    private static readonly Dictionary<string, string> Icons = new() { ["organization"] = "Globe2", ["region"] = "MapPin", ["branch"] = "Building2", ["department"] = "Users" };
+
+    private sealed class UnitEdit
+    {
+        public string? Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "branch";
+        public string ParentId { get; set; } = "";
+        public double? Lat { get; set; }
+        public double? Lng { get; set; }
+    }
+
+    private List<OrgUnitRow>? _data;
+    private readonly HashSet<Guid> _collapsed = [];
+    private UnitEdit? _edit;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); }
+        catch (ApiException e) { _data ??= []; Toast.Fail(e, "Could not load the organization"); }
+    }
+
+    /// <summary>Units under a parent (null = top level, including units whose parent is not visible).</summary>
+    private List<OrgUnitRow> Children(Guid? parent) => (_data ?? [])
+        .Where(u => parent is null ? u.ParentId is null || _data!.All(x => x.Id != u.ParentId) : u.ParentId == parent)
+        .OrderBy(u => u.Name, StringComparer.CurrentCulture).ToList();
+
+    private (int Devices, int Online) Totals(OrgUnitRow u)
+    {
+        var t = (u.Devices, u.Online);
+        foreach (var c in Children(u.Id)) { var ct = Totals(c); t = (t.Devices + ct.Devices, t.Online + ct.Online); }
+        return t;
+    }
+
+    private void Open(UnitEdit e) => _edit = e;
+
+    private void AddUnit() => _edit = new UnitEdit { Type = "branch", ParentId = _data?.FirstOrDefault(u => u.Type == "organization")?.Id.ToString() ?? "" };
+
+    private RenderFragment Render(OrgUnitRow u, int depth) => __builder =>
+    {
+        var kids = Children(u.Id);
+        var t = Totals(u);
+        var open = !_collapsed.Contains(u.Id);
+        <div @key="u.Id">
+            <div class="group flex items-center gap-2 border-b border-line py-2.5 pr-3 hover:bg-panel-2/60" style="padding-left:@(12 + depth * 22)px">
+                <button type="button" class="@Cls.Join("grid size-5 place-items-center text-muted", Cls.If(kids.Count == 0, "invisible"))" aria-label="@(open ? "Collapse" : "Expand")"
+                        @onclick="() => { if (open) _collapsed.Add(u.Id); else _collapsed.Remove(u.Id); }">
+                    <Icon Name="@(open ? "ChevronDown" : "ChevronRight")" Class="size-4" />
+                </button>
+                <Icon Name="@(Icons.GetValueOrDefault(u.Type) ?? "Building")" Class="size-4 text-muted" />
+                <a href="@($"/devices?orgUnitId={u.Id}")" class="font-medium hover:text-brand-ink">@u.Name</a>
+                <span class="text-xs capitalize text-muted">@u.Type</span>
+                @foreach (var pp in u.Policies ?? [])
+                {
+                    <Badge Tone="critical">@pp.Name</Badge>
+                }
+                <span class="ml-auto text-xs tabular text-fg-2"><span class="font-medium text-fg">@t.Online</span>/@t.Devices online</span>
+                @if (Session.Can.Super)
+                {
+                    <span class="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+                        <Btn Size="sm" Variant="ghost" Icon="Plus" AriaLabel="Add child"
+                             OnClick='() => Open(new UnitEdit { ParentId = u.Id.ToString(), Type = u.Type == "organization" ? "region" : u.Type == "region" ? "branch" : "department" })' />
+                        <Btn Size="sm" Variant="ghost" Icon="Pencil" AriaLabel="Edit"
+                             OnClick="() => Open(new UnitEdit { Id = u.Id.ToString(), Name = u.Name, Type = u.Type, ParentId = u.ParentId?.ToString() ?? string.Empty, Lat = u.Lat, Lng = u.Lng })" />
+                        @if (u.Type != "organization")
+                        {
+                            <Btn Size="sm" Variant="ghost" Icon="Trash2" AriaLabel="Delete" OnClick="() => Delete(u)" />
+                        }
+                    </span>
+                }
+            </div>
+            @if (open)
+            {
+                foreach (var k in kids)
+                {
+                    @Render(k, depth + 1)
+                }
+            }
+        </div>
+    };
+
+    private async Task Save()
+    {
+        if (_edit is not { } e || string.IsNullOrWhiteSpace(e.Name)) return;
+        var body = new { name = e.Name, type = e.Type, parentId = e.ParentId == "" ? (Guid?)null : Guid.Parse(e.ParentId), lat = e.Lat, lng = e.Lng };
+        try
+        {
+            if (e.Id is { } id) await Api.PutAsync($"/api/org/{id}", body);
+            else await Api.PostAsync("/api/org", body);
+            Toast.Success("Saved");
+            _edit = null;
+            await Load();
+        }
+        catch (ApiException ex) { Toast.Fail(ex); }
+    }
+
+    private async Task Delete(OrgUnitRow u)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = $"Delete {u.Name}?", Message = "The unit is removed from the organisation tree.", Danger = true })) return;
+        try { await Api.DeleteAsync($"/api/org/{u.Id}"); await Load(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

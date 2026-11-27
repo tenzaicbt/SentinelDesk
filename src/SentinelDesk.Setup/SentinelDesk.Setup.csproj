@@ -1,6 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Tiny .NET Framework 4.8 wrapper (built into every Windows 10/11), so the setup file is ~ the size of the agent package. -->
+  <!--
+    FluentSetup: the SentinelDesk agent installer, upgrader and uninstaller (Windows 11 Fluent-style wizard).
+    .NET Framework 4.8 is built into every Windows 10 (1903+) and 11, so the setup file needs no runtime and is about the
+    size of the agent package it carries.
+    build.ps1 builds it twice: without a package (copied into the agent bundle as Uninstall.exe), then with the agent
+    package embedded (-p:AgentZip=...) as SentinelDesk-Setup.exe.
+  -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -11,9 +17,13 @@
     <AssemblyName>SentinelDesk-Setup</AssemblyName>
     <RootNamespace>SentinelDesk.Setup</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>setup.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\SentinelDesk.ico</ApplicationIcon>
     <Product>SentinelDesk Agent Setup</Product>
-    <Company>SentinelDesk</Company>
+    <AssemblyTitle>SentinelDesk Agent Setup</AssemblyTitle>
+    <!-- 64-bit process on 64-bit Windows: real Program Files and System32 -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- path to the agent bundle zip, passed by build.ps1 -->
     <AgentZip Condition="'$(AgentZip)' == ''"></AgentZip>
   </PropertyGroup>
@@ -23,7 +33,7 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.ServiceProcess" />
-    <EmbeddedResource Include="setup.ico" LogicalName="setup.ico" />
+    <EmbeddedResource Include="..\..\LICENSE" LogicalName="LICENSE.txt" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(AgentZip)' != ''">

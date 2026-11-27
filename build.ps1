@@ -38,23 +38,34 @@ Copy-Item (Join-Path $root 'deploy/agent/*.ps1') (Join-Path $out 'agent')
 Remove-Item (Join-Path $out 'agent/appsettings*.json') -ErrorAction SilentlyContinue
 
 $version = (Get-Item (Join-Path $out 'agent/SentinelDesk.Agent.dll')).VersionInfo.ProductVersion -replace '\+.*$', ''
+
+# FluentSetup (src/SentinelDesk.Setup, .NET Framework 4.8 - built into Windows 10/11, no runtime needed).
+# 1) without a package: the uninstaller that install-agent.ps1 copies into the install folder (Apps & features -> Uninstall)
+$setupProj = Join-Path $root 'src/SentinelDesk.Setup'
+$setupTmp = Join-Path $out 'setup-build'
+Write-Host '>> Building FluentSetup uninstaller (agent\Uninstall.exe)' -ForegroundColor Cyan
+dotnet build $setupProj -c $Configuration -o (Join-Path $setupTmp 'plain') --no-incremental '-p:AgentZip=' -p:DebugType=none --nologo -v q
+if ($LASTEXITCODE) { throw 'FluentSetup (uninstaller) build failed' }
+Copy-Item (Join-Path $setupTmp 'plain/SentinelDesk-Setup.exe') (Join-Path $out 'agent/Uninstall.exe')
+
 $zip = Join-Path $out "SentinelDesk-Agent-$version.zip"
 Compress-Archive -Path (Join-Path $out 'agent/*') -DestinationPath $zip -Force
 
-Write-Host '>> Building one-file office installer with NSIS (SentinelDesk-Setup.exe)' -ForegroundColor Cyan
-$makensis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
-if (-not $makensis) {
-    $makensis = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-}
-if (-not $makensis) { throw 'NSIS (makensis.exe) not found - install it with: winget install NSIS.NSIS' }
-$parts = @(($version -split '[.-]') | Where-Object { $_ -match '^\d+$' } | Select-Object -First 4)
-while ($parts.Count -lt 4) { $parts += '0' }
+# 2) with the agent package embedded: the one-file installer / upgrader
+Write-Host '>> Building FluentSetup installer (SentinelDesk-Setup.exe)' -ForegroundColor Cyan
+dotnet build $setupProj -c $Configuration -o (Join-Path $setupTmp 'full') --no-incremental "-p:AgentZip=$zip" -p:DebugType=none --nologo -v q
+if ($LASTEXITCODE) { throw 'FluentSetup (installer) build failed' }
 $setup = Join-Path $out 'SentinelDesk-Setup.exe'
-& $makensis /V2 /INPUTCHARSET UTF8 "/DVERSION=$version" "/DFILEVERSION=$($parts -join '.')" "/DAGENTDIR=$(Join-Path $out 'agent')" "/DOUTFILE=$setup" (Join-Path $root 'deploy/setup/SentinelDesk-Setup.nsi')
-if ($LASTEXITCODE) { throw 'NSIS setup build failed' }
+Copy-Item (Join-Path $setupTmp 'full/SentinelDesk-Setup.exe') $setup -Force
+Remove-Item -Recurse -Force $setupTmp
+# version + hash of the embedded package: the server signs them into each office installer it hands out, which lets
+# that installer upgrade an agent (the Guard service checks the signature before it installs anything)
+$package = @{ version = $version; sha256 = (Get-FileHash $zip -Algorithm SHA256).Hash } | ConvertTo-Json -Compress
+$packageJson = Join-Path $out 'SentinelDesk-Setup.package.json'
+[IO.File]::WriteAllText($packageJson, $package)
 # the server serves configured copies of it from Console -> Agent management -> Office installer
 New-Item -ItemType Directory -Force (Join-Path $out 'server/installer') | Out-Null
-Copy-Item $setup (Join-Path $out 'server/installer/SentinelDesk-Setup.exe') -Force
+Copy-Item $setup, $packageJson (Join-Path $out 'server/installer') -Force
 
 Write-Host "`nOK Done" -ForegroundColor Green
 Write-Host "  Server : $out\server\SentinelDesk.Server.exe"

@@ -7,9 +7,10 @@ using System.Text;
 namespace SentinelDesk.Setup
 {
     /// <summary>
-    /// Settings carried inside the setup file. The web console (or build.ps1) appends them to the end of the exe:
+    /// Settings carried inside the setup file. The web console appends them to the end of the exe:
     ///   [key=value lines (UTF-8)][length: int32 LE]["SDSETUP1"]
-    /// Command-line switches override them: /server URL /token TOKEN /key UNINSTALLKEY /pin SHA256 /tofu /quiet
+    /// Command-line switches override them (both "/server URL" and "/server=URL" forms):
+    ///   /server URL  /token TOKEN  /key UNINSTALLKEY  /pin SHA256  /tofu  /quiet (or /S)  /uninstall
     /// </summary>
     public sealed class SetupConfig
     {
@@ -24,18 +25,35 @@ namespace SentinelDesk.Setup
         public string OrgName;
         public string BranchName;
         public bool Quiet;
+        /// <summary>Remove the agent (Uninstall.exe, or /uninstall).</summary>
+        public bool Uninstall;
+        /// <summary>Internal: this copy runs from %TEMP% for an uninstall started from the install folder.</summary>
+        public bool FromTemp;
+
+        // Upgrade authorisation: the console signs "{version}|{sha256}" of the embedded agent package with the server's
+        // signing key. The installed Guard checks that signature before it installs the package (it trusts nothing else).
+        public string PackageVersion;
+        public string PackageSha256;
+        public string PackageSignature;
 
         public bool IsPreconfigured => !string.IsNullOrEmpty(ServerUrl) && !string.IsNullOrEmpty(EnrollToken) && !string.IsNullOrEmpty(UninstallKey);
+        public bool CanUpgrade => !string.IsNullOrEmpty(PackageVersion) && !string.IsNullOrEmpty(PackageSha256) && !string.IsNullOrEmpty(PackageSignature);
 
         public static SetupConfig Load(string[] args)
         {
             var c = new SetupConfig();
-            foreach (var kv in ReadTrailer(System.Reflection.Assembly.GetExecutingAssembly().Location)) c.Set(kv.Key, kv.Value);
+            var exe = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            foreach (var kv in ReadTrailer(exe)) c.Set(kv.Key, kv.Value);
+            if (Path.GetFileNameWithoutExtension(exe).Equals("Uninstall", StringComparison.OrdinalIgnoreCase)) c.Uninstall = true;
 
             for (var i = 0; i < args.Length; i++)
             {
-                var a = args[i].TrimStart('/', '-').ToLowerInvariant();
-                string Next() => i + 1 < args.Length ? args[++i] : "";
+                var raw = args[i].TrimStart('/', '-');
+                string inline = null;
+                var eq = raw.IndexOf('=');
+                if (eq > 0) { inline = raw.Substring(eq + 1).Trim('"'); raw = raw.Substring(0, eq); }
+                var a = raw.ToLowerInvariant();
+                string Next() => inline ?? (i + 1 < args.Length ? args[++i] : "");
                 switch (a)
                 {
                     case "quiet": case "q": case "silent": case "s": c.Quiet = true; break;
@@ -44,6 +62,8 @@ namespace SentinelDesk.Setup
                     case "token": c.EnrollToken = Next(); break;
                     case "key": c.UninstallKey = Next(); break;
                     case "pin": c.ServerCertSha256 = Next(); break;
+                    case "uninstall": c.Uninstall = true; break;
+                    case "fromtemp": c.FromTemp = true; break;
                 }
             }
             return c;
@@ -60,6 +80,9 @@ namespace SentinelDesk.Setup
                 case "tofu": TrustOnFirstUse = value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                 case "org": OrgName = value; break;
                 case "branch": BranchName = value; break;
+                case "packageVersion": PackageVersion = value; break;
+                case "packageSha256": PackageSha256 = value; break;
+                case "packageSignature": PackageSignature = value; break;
             }
         }
 

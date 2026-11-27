@@ -3,7 +3,7 @@
   Installs the SentinelDesk endpoint agent (Agent service + Guard watchdog + Tray) on this PC.
 
 .DESCRIPTION
-  Must run elevated (UAC / admin credentials). Normally launched by SentinelDesk-Setup.exe (NSIS, deploy/setup); can also be used
+  Must run elevated (UAC / admin credentials). Normally launched by SentinelDesk-Setup.exe (FluentSetup, src/SentinelDesk.Setup); can also be used
   directly from GPO startup scripts, Intune (Win32 app) or SCCM:
 
     powershell -ExecutionPolicy Bypass -File install-agent.ps1 `

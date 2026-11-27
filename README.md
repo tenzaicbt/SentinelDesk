@@ -77,14 +77,22 @@ back that folder up, and keep it out of source control.
 
 **Agents — one file per office (recommended):** in the console open *Agent management → Office installer*, pick the
 branch, enter the server address the offices can reach and your uninstall key, and click *Download setup*. You get
-`SentinelDesk-Setup-<Branch>.exe` (~37 MB, an NSIS installer built from `deploy/setup/SentinelDesk-Setup.nsi`) with the
-server address, a fresh enrollment token and the uninstall-key hash built in. Staff double-click it (UAC / admin), or IT
-deploys it silently: `SentinelDesk-Setup-<Branch>.exe /quiet` (or `/S`; exit code 0 = installed; log in
-`C:\Windows\Temp\SentinelDesk-Install.log`). The unconfigured `publish/SentinelDesk-Setup.exe` asks for those values, or
-takes `/server URL /token TOKEN /key KEY [/pin SHA256] [/tofu] [/quiet]`. Building it needs NSIS 3 (`winget install NSIS.NSIS`).
+`SentinelDesk-Setup-<Branch>.exe` with the server address, a fresh enrollment token and the uninstall-key hash built in.
+It is **FluentSetup** (`src/SentinelDesk.Setup`): a Windows 11 Fluent-style wizard on .NET Framework 4.8, which is built
+into Windows 10/11, so nothing else is installed first. Staff double-click it (UAC / admin), or IT deploys it silently:
+`SentinelDesk-Setup-<Branch>.exe /quiet` (or `/S`; exit code 0 = installed; logs in `C:\Windows\Temp\SentinelDesk-Setup.log`
+and `SentinelDesk-Install.log`). The unconfigured `publish/SentinelDesk-Setup.exe` asks for those values, or takes
+`/server URL /token TOKEN /key KEY [/pin SHA256] [/tofu] [/quiet]` (also `/server=URL` ...). A failed install is rolled back.
 
-**Uninstall:** *Apps & features → SentinelDesk Agent*, or `C:\Program Files\SentinelDesk\Uninstall.exe`. It asks for the
-Uninstall Key or a per-device one-time code. Silent: `Uninstall.exe /S /key=<key>` (exit code 0 = removed).
+**Upgrade with the setup file:** run a newer office installer on a PC that has an older agent and it upgrades it. The
+console signs the package inside every office installer it hands out; the agent's Guard service checks that signature,
+backs up the installed version, installs the new one and rolls back automatically if the agent does not start. The
+generic, unsigned `publish/SentinelDesk-Setup.exe` cannot upgrade (exit code 12): use *Agent management → Releases* or an
+office installer. Exit codes: 0 upgraded, 20 rolled back, 21 package rejected.
+
+**Uninstall:** *Apps & features → SentinelDesk Agent*, or `C:\Program Files\SentinelDesk\Uninstall.exe` (FluentSetup in
+uninstall mode). It asks for the Uninstall Key or a per-device one-time code. Silent: `Uninstall.exe /S /key=<key>`
+(exit code 0 = removed).
 
 **Agents — scripted:** push `publish/agent` and run elevated:
 

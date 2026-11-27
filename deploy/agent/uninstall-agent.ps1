@@ -116,7 +116,7 @@ function Remove-SentinelDesk {
         }
     }
     Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'SentinelDesk' -ErrorAction SilentlyContinue
-    Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SentinelDesk' -Recurse -Force -ErrorAction SilentlyContinue   # Apps & features entry (NSIS)
+    Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SentinelDesk' -Recurse -Force -ErrorAction SilentlyContinue   # Apps & features entry (FluentSetup)
     Start-Sleep -Seconds 2
     Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $DataDir -ErrorAction SilentlyContinue
@@ -153,7 +153,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Administrator rights are required to uninstall SentinelDesk.'
 }
 if (-not $UninstallKey -and $env:SD_UNINSTALL_KEY) {
-    # set by Uninstall.exe (NSIS) so the key never appears on a command line
+    # set by Uninstall.exe (FluentSetup) so the key never appears on a command line
     $UninstallKey = $env:SD_UNINSTALL_KEY
     Remove-Item Env:\SD_UNINSTALL_KEY -ErrorAction SilentlyContinue
 }

@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   1. Runs build.ps1 (unless -SkipBuild)
-  2. Replaces Git/releases/* and Git/web-console/* with the new build, and refreshes LICENSE and the README images
+  2. Replaces Git/releases/* with the new build, and refreshes LICENSE and the README images
+     (the web console is part of the server since 1.2.2, so the old Git/web-console copy is removed)
   3. Updates the version numbers in Git/README.md
   4. Safety checks: no dev settings, databases, keys, symbols or source maps; every file under GitHub's 100 MB limit
   5. Commits in Git/ and pushes (unless -NoPush). Records the private commit it was built from in Git/.git (local only).
@@ -64,15 +65,8 @@ Compress-Archive -Path (Join-Path $stage '*') -DestinationPath (Join-Path $rel "
 Remove-Item -Recurse -Force $stage
 Copy-Item (Join-Path $pub 'SentinelDesk-Setup.exe'), $agentZip $rel
 
-# web-console/ (without the server's pre-compressed .br/.gz duplicates)
-$wc = Join-Path $g 'web-console'
-Remove-Item -Recurse -Force $wc -ErrorAction SilentlyContinue
-$www = Join-Path $pub 'server/wwwroot'
-Get-ChildItem $www -Recurse -File | Where-Object { $_.Extension -notin '.br', '.gz' } | ForEach-Object {
-    $dest = Join-Path $wc $_.FullName.Substring($www.Length + 1)
-    New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
-    Copy-Item $_.FullName $dest
-}
+# The web console runs inside the server (Blazor Server) and cannot be hosted on its own: drop the old static copy
+Remove-Item -Recurse -Force (Join-Path $g 'web-console') -ErrorAction SilentlyContinue
 
 # LICENSE and README images
 Copy-Item (Join-Path $root 'LICENSE') $g -Force
@@ -92,7 +86,7 @@ $text = $text -replace '\*\*Version [\d.]+\*\*', "**Version $version**"
 # Safety checks - never publish developer files
 $bad = Get-ChildItem $g -Recurse -File -Force | Where-Object {
     $_.FullName -notlike "$g\.git\*" -and (
-        $_.Name -like 'appsettings.Development*.json' -or $_.Extension -in '.db', '.pdb', '.map', '.pfx', '.pem', '.key', '.cs', '.tsx', '.ts', '.csproj', '.sln' -or
+        $_.Name -like 'appsettings.Development*.json' -or $_.Extension -in '.db', '.pdb', '.map', '.pfx', '.pem', '.key', '.cs', '.razor', '.tsx', '.ts', '.csproj', '.sln' -or
         $_.Name -in '.env', 'build.ps1', 'dev.ps1') }
 if ($bad) { throw "Refusing to publish developer files:`n$($bad.FullName -join "`n")" }
 foreach ($zip in Get-ChildItem $rel -Filter *.zip) {

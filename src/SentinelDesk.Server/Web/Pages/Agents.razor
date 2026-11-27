@@ -1,0 +1,558 @@
+@page "/agents"
+@inherits ConsolePage
+
+<PageHeader Title="Agent management" Icon="KeyRound" Subtitle="Enrollment, staged upgrades and trust configuration" />
+<Tabs Items="@([new TabItem("enroll", "Enrollment", "KeyRound"), new TabItem("releases", "Releases & rollout", "Rocket"), new TabItem("trust", "Trust & keys", "ShieldCheck")])" Value="@_tab" ValueChanged="SetTab" />
+<div class="mt-3">
+    @if (_tab == "enroll")
+    {
+        <div class="space-y-3">
+            @* ── office installer: one file per branch *@
+            <Card Subtitle="Downloads SentinelDesk-Setup.exe with the server address, a new enrollment token and your uninstall key built in. Staff double-click it (admin rights) or admins push it silently with /quiet.">
+                <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="Download" Class="size-3.5" />Office installer — one file to send to each branch</span></TitleContent>
+                <ChildContent>
+                    @if (_installer is null)
+                    {
+                        <Skeleton Class="h-40" />
+                    }
+                    else if (!_installer.Available)
+                    {
+                        <Callout Tone="warning">The setup file has not been built yet. On the server run <code class="font-mono">.\build.ps1</code> - it creates <code class="font-mono">publish\SentinelDesk-Setup.exe</code>, then reload this page.</Callout>
+                    }
+                    else
+                    {
+                        var keyOk = _inst.UninstallKey.Length >= 8 && _inst.UninstallKey == _inst.ConfirmKey;
+                        <div class="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+                            <div class="space-y-3">
+                                <Field Label="Branch / office" Hint="New PCs are placed here automatically">
+                                    <Dropdown @bind-Value="_inst.OrgUnitId" Class="w-full" Options="@UnitOptions("Unassigned (place later)")" />
+                                </Field>
+                                <Field Label="Server address offices connect to" Hint="Must be reachable from the branches (LAN/VPN/MPLS or internet) - not localhost">
+                                    <input class="@Cls.Input" list="sd-server-suggestions" value="@Server" @oninput="e => _inst.ServerUrl = e.Value?.ToString() ?? string.Empty" placeholder="https://monitor.company.lk:5443" />
+                                    <datalist id="sd-server-suggestions">
+                                        @foreach (var s in _installer.Suggestions)
+                                        {
+                                            <option value="@s"></option>
+                                        }
+                                    </datalist>
+                                </Field>
+                            </div>
+                            <div class="space-y-3">
+                                <div class="grid grid-cols-2 gap-3">
+                                    <Field Label="Uninstall key"><input class="@Cls.Input" type="password" autocomplete="new-password" @bind="_inst.UninstallKey" @bind:event="oninput" /></Field>
+                                    <Field Label="Confirm key"><input class="@Cls.Input" type="password" autocomplete="new-password" @bind="_inst.ConfirmKey" @bind:event="oninput" /></Field>
+                                </div>
+                                <p class="-mt-1 text-[11px] text-muted">Only a hash is embedded. Keep the key safe - it is needed (with admin rights) to remove the agent.</p>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <Field Label="Max PCs"><input class="@Cls.Input" type="number" min="1" @bind="_inst.Uses" /></Field>
+                                    <Field Label="Valid for (days)"><input class="@Cls.Input" type="number" min="1" max="365" @bind="_inst.Days" /></Field>
+                                </div>
+                            </div>
+                            <div class="flex min-w-56 flex-col justify-between gap-3">
+                                <div class="space-y-3">
+                                    <Switch @bind-Checked="_inst.AutoApprove" Label="Approve PCs automatically" />
+                                    <Switch @bind-Checked="_inst.TrustOnFirstUse" Label="Trust server certificate on first connect" Description="Needed for a self-signed / internal certificate" />
+                                </div>
+                                <div>
+                                    <Btn Variant="primary" Class="w-full" Icon="Download" Loading="_busy" Disabled="@(Server == "" || !keyOk)" OnClick="DownloadInstaller">
+                                        Download setup (@Fmt.Bytes(_installer.SizeBytes ?? 0))
+                                    </Btn>
+                                    @if (!keyOk && _inst.UninstallKey != "")
+                                    {
+                                        <p class="mt-1 text-[11px] text-critical">Keys must match and be at least 8 characters</p>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </ChildContent>
+            </Card>
+
+            <Card Title="Uninstall protection">
+                <ul class="space-y-2.5 text-sm text-fg-2">
+                    <li class="flex gap-2"><Icon Name="ShieldCheck" Class="mt-0.5 size-4 shrink-0 text-good-ink" />Services ACL'd — only SYSTEM can stop or delete them</li>
+                    <li class="flex gap-2"><Icon Name="ShieldCheck" Class="mt-0.5 size-4 shrink-0 text-good-ink" /><span>Uninstall needs admin rights <b>and</b> the Uninstall Key or a per-device one-time code</span></li>
+                    <li class="flex gap-2"><Icon Name="ShieldCheck" Class="mt-0.5 size-4 shrink-0 text-good-ink" />Guard ↔ Agent watchdog restarts each other</li>
+                    <li class="flex gap-2"><Icon Name="ShieldCheck" Class="mt-0.5 size-4 shrink-0 text-good-ink" />Stops, kills, binary changes and bad keys raise tamper alerts</li>
+                </ul>
+            </Card>
+
+            @if (_created is not null)
+            {
+                <Callout Tone="good">
+                    <p class="font-medium">Token created. You can copy it again any time from the token list below.</p>
+                    <div class="mt-2">@CopyBlock(_created)</div>
+                </Callout>
+            }
+
+            <Card Pad="false" Title="Enrollment tokens">
+                <Actions><Btn Variant="primary" Size="sm" Icon="KeyRound" OnClick="() => { _form = new TokenForm(); _open = true; }">New token</Btn></Actions>
+                <ChildContent>
+                    @if (_tokens is null)
+                    {
+                        <div class="p-4"><Skeleton Class="h-40" /></div>
+                    }
+                    else if (_tokens.Count == 0)
+                    {
+                        <Empty Icon="KeyRound" Title="No tokens yet" />
+                    }
+                    else
+                    {
+                        <DataTable>
+                            <thead><tr><th class="w-6"></th><th>Name</th><th>Token</th><th>Branch</th><th>Devices</th><th class="text-right">Used / left</th><th>Approval</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var t in _tokens)
+                                {
+                                    var expanded = _expanded == t.Id;
+                                    <tr @key="t.Id" class="@Cls.Join(Cls.If(t.Devices > 0, "cursor-pointer"), Cls.If(expanded, "bg-panel-2/50"))" @onclick="() => ToggleToken(t)">
+                                        <td class="text-muted">
+                                            @if (t.Devices > 0)
+                                            {
+                                                <Icon Name="@(expanded ? "ChevronDown" : "ChevronRight")" Class="size-4" />
+                                            }
+                                        </td>
+                                        <td class="font-medium">@t.Name<div class="text-xs font-normal text-muted">by @t.CreatedBy · @F.Ago(t.CreatedAt)</div></td>
+                                        <td @onclick:stopPropagation>@TokenValue(t)</td>
+                                        <td class="text-fg-2">@(t.OrgUnit ?? "Unassigned")</td>
+                                        <td>
+                                            @if (t.Devices == 0)
+                                            {
+                                                <span class="text-xs text-muted">None</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="inline-flex items-center gap-2 text-xs">
+                                                    <span class="font-medium tabular text-fg">@t.Devices</span>
+                                                    <span class="inline-flex items-center gap-1 text-good-ink"><OnlineDot Online="@(t.OnlineDevices > 0)" />@t.OnlineDevices online</span>
+                                                    @if (t.ActiveDevices < t.Devices)
+                                                    {
+                                                        <span class="text-muted">· @(t.Devices - t.ActiveDevices) not active</span>
+                                                    }
+                                                </span>
+                                            }
+                                        </td>
+                                        <td class="text-right tabular">@t.UsedCount / @t.UsesLeft</td>
+                                        <td>
+                                            @if (t.AutoApprove)
+                                            {
+                                                <Badge>Automatic</Badge>
+                                            }
+                                            else
+                                            {
+                                                <Badge Tone="warning">Manual</Badge>
+                                            }
+                                        </td>
+                                        <td class="text-xs text-muted">@F.DateTimeText(t.ExpiresAt)</td>
+                                        <td>
+                                            @if (t.Active)
+                                            {
+                                                <Badge Tone="good">Active</Badge>
+                                            }
+                                            else
+                                            {
+                                                <Badge>@(t.Revoked ? "Revoked" : "Expired")</Badge>
+                                            }
+                                        </td>
+                                        <td @onclick:stopPropagation>
+                                            @if (t.Active)
+                                            {
+                                                <Btn Size="sm" Variant="ghost" Icon="Ban" OnClick="() => Revoke(t)">Revoke</Btn>
+                                            }
+                                        </td>
+                                    </tr>
+                                    @if (expanded)
+                                    {
+                                        <tr class="hover:bg-transparent!"><td colspan="10" class="bg-panel-2/30 p-0!">@TokenDevices()</td></tr>
+                                    }
+                                }
+                            </tbody>
+                        </DataTable>
+                    }
+                </ChildContent>
+            </Card>
+
+            <Modal Open="_open" OnClose="() => _open = false" Title="New enrollment token">
+                <ChildContent>
+                    <div class="space-y-3">
+                        <Field Label="Name"><input class="@Cls.Input" data-autofocus="" @bind="_form.Name" @bind:event="oninput" placeholder="e.g. Kandy branch rollout" /></Field>
+                        <Field Label="Place enrolled devices in"><Dropdown @bind-Value="_form.OrgUnitId" Class="w-full" Options="@UnitOptions("Unassigned")" /></Field>
+                        <p class="text-xs text-muted">The token works for 30 days and up to 500 devices. Devices that use it are approved automatically.</p>
+                    </div>
+                </ChildContent>
+                <Footer>
+                    <Btn OnClick="() => _open = false">Cancel</Btn>
+                    <Btn Variant="primary" Disabled="string.IsNullOrEmpty(_form.Name)" OnClick="CreateToken">Create token</Btn>
+                </Footer>
+            </Modal>
+        </div>
+    }
+    else if (_tab == "releases")
+    {
+        var total = _releases?.Versions.Sum(v => v.Count) ?? 0;
+        <div class="grid gap-3 xl:grid-cols-3">
+            <Card Title="Fleet versions" Subtitle="@($"{total} active devices")">
+                <ul class="space-y-3">
+                    @foreach (var v in _releases?.Versions ?? [])
+                    {
+                        <li>
+                            <div class="mb-1 flex justify-between text-sm"><span class="font-mono">v@(v.Version)</span><span class="tabular text-fg-2">@v.Count · @(total > 0 ? Math.Round(v.Count * 100.0 / total, MidpointRounding.AwayFromZero) : 0)%</span></div>
+                            <div class="h-1.5 rounded-full bg-panel-2"><div class="h-full rounded-full bg-s1" style="width:@(Cls.Css(total > 0 ? v.Count * 100.0 / total : 0))%"></div></div>
+                        </li>
+                    }
+                </ul>
+            </Card>
+            <Card Class="xl:col-span-2" Title="Upload a release" Subtitle="Zip of the agent publish folder. The server signs SHA-256 + version with its ECDSA key; agents and Guard verify before installing.">
+                <div class="grid gap-3 sm:grid-cols-[1fr_140px]">
+                    <Field Label="Package (.zip)"><InputFile accept=".zip" OnChange="e => _file = e.File" class="@Cls.InputCls("pt-1.5")" /></Field>
+                    <Field Label="Version"><input class="@Cls.Input" @bind="_version" @bind:event="oninput" placeholder="1.0.1" /></Field>
+                </div>
+                <Field Label="Release notes" Class="mt-3"><input class="@Cls.Input" @bind="_notes" @bind:event="oninput" /></Field>
+                <Btn Class="mt-4" Variant="primary" Icon="Upload" Disabled="@(_file is null || _version == "")" Loading="_busy" OnClick="Upload">Upload &amp; sign</Btn>
+            </Card>
+            <Card Class="xl:col-span-3" Pad="false" Title="Releases" Subtitle="Staged rollout: devices are bucketed deterministically, so raising the percentage only adds devices">
+                @if (!(_releases?.Releases.Count > 0))
+                {
+                    <Empty Icon="PackagePlus" Title="No releases uploaded" />
+                }
+                else
+                {
+                    <DataTable>
+                        <thead><tr><th>Version</th><th>Package</th><th>Uploaded</th><th>Rollout</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var r in _releases.Releases)
+                            {
+                                <tr @key="r.Id">
+                                    <td class="font-mono font-medium">v@(r.Version)<div class="font-sans text-xs font-normal text-muted">@r.Notes</div></td>
+                                    <td class="text-xs"><div>@r.FileName · @Fmt.Bytes(r.SizeBytes)</div><div class="font-mono text-muted">sha256 @(r.Sha256.Length > 16 ? r.Sha256[..16] : r.Sha256)…</div></td>
+                                    <td class="text-xs text-muted">@F.Ago(r.UploadedAt) by @r.UploadedBy</td>
+                                    <td>
+                                        <div class="flex flex-wrap items-center gap-1">
+                                            @foreach (var pct in new[] { 0, 10, 50, 100 })
+                                            {
+                                                <Btn Size="sm" Variant="@(r.RolloutPercent == pct ? "primary" : "secondary")" Icon="@(pct == 10 ? "FlaskConical" : null)" IconClass="size-3" OnClick="() => Rollout(r, pct)">
+                                                    @(pct == 0 ? "Paused" : $"{pct}%")
+                                                </Btn>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td><Btn Size="sm" Variant="ghost" Icon="Trash2" OnClick="() => DeleteRelease(r)" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </DataTable>
+                }
+            </Card>
+        </div>
+    }
+    else
+    {
+        @if (_info is null)
+        {
+            <Skeleton Class="h-64" />
+        }
+        else
+        {
+            <div class="grid gap-3 lg:grid-cols-2">
+                <Card Title="Server key material" Subtitle="Generated on first start; protected with DPAPI on the server">
+                    <Kv>
+                        <KvRow K="Device CA thumbprint"><code class="font-mono text-xs">@_info.CaThumbprint</code></KvRow>
+                        <KvRow K="Device CA expires" V="@F.DateTimeText(_info.CaExpires)" />
+                        <KvRow K="Policy/command signing key"><code class="font-mono text-xs">@_info.SigningKeyFingerprint</code></KvRow>
+                        <KvRow K="Payload encryption key"><code class="font-mono text-xs">@_info.EncryptionKeyFingerprint</code></KvRow>
+                        <KvRow K="Mutual TLS">
+                            @if (_info.RequireMtls)
+                            {
+                                <Badge Tone="good">Required</Badge>
+                            }
+                            else
+                            {
+                                <Badge Tone="warning">Optional (HMAC enforced)</Badge>
+                            }
+                        </KvRow>
+                    </Kv>
+                </Card>
+                <Card Title="Encryption in this deployment">
+                    <ul class="space-y-2.5 text-sm text-fg-2">
+                        <li class="flex gap-2"><Icon Name="Terminal" Class="mt-0.5 size-4 shrink-0" />TLS 1.2/1.3 transport, per-device ECDSA P-256 client certificate (TPM-backed when available)</li>
+                        <li class="flex gap-2"><Icon Name="Terminal" Class="mt-0.5 size-4 shrink-0" />Every batch: AES-256-GCM with a fresh key wrapped by RSA-3072-OAEP</li>
+                        <li class="flex gap-2"><Icon Name="Terminal" Class="mt-0.5 size-4 shrink-0" />Offline queue on the PC: AES-256-GCM, key sealed with DPAPI (machine)</li>
+                        <li class="flex gap-2"><Icon Name="Terminal" Class="mt-0.5 size-4 shrink-0" />Policies, commands and update packages signed with ECDSA P-256</li>
+                        <li class="flex gap-2"><Icon Name="Terminal" Class="mt-0.5 size-4 shrink-0" />Per-request HMAC device tokens with replay protection</li>
+                    </ul>
+                </Card>
+                @if (_info.DemoMode)
+                {
+                    <Card Class="lg:col-span-2" Title="Demo data">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="text-sm text-fg-2">Demo mode is generating a simulated island-wide fleet. Remove it before production use (also set <code class="font-mono">Demo:Enabled=false</code>).</p>
+                            <Btn Variant="danger" Icon="Trash2" OnClick="PurgeDemo">Purge simulated devices</Btn>
+                        </div>
+                    </Card>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private sealed class InstallerForm
+    {
+        public string OrgUnitId { get; set; } = "";
+        public string ServerUrl { get; set; } = "";
+        public string UninstallKey { get; set; } = "";
+        public string ConfirmKey { get; set; } = "";
+        public int Uses { get; set; } = 200;
+        public int Days { get; set; } = 30;
+        public bool AutoApprove { get; set; } = true;
+        public bool TrustOnFirstUse { get; set; } = true;
+    }
+
+    private sealed class TokenForm
+    {
+        public string Name { get; set; } = "";
+        public string OrgUnitId { get; set; } = "";
+    }
+
+    private string _tab = "enroll";
+    private List<OrgUnitRow>? _org;
+    private List<TokenRow>? _tokens;
+    private InstallerInfo? _installer;
+    private readonly InstallerForm _inst = new();
+    private TokenForm _form = new();
+    private bool _open, _busy;
+    private string? _created;
+    private Guid? _expanded;
+    private List<TokenDevice>? _tokenDevices;
+    private readonly Dictionary<Guid, string> _revealed = [];
+    private ReleasesData? _releases;
+    private IBrowserFile? _file;
+    private string _version = "", _notes = "";
+    private ServerInfo? _info;
+
+    private string Server => _inst.ServerUrl != "" ? _inst.ServerUrl : _installer?.Suggestions.FirstOrDefault() ?? "";
+
+    private IEnumerable<Opt> UnitOptions(string none) => [new("", none), .. Cls.Units(_org).Select(o => new Opt(o.Id.ToString(), o.Name))];
+
+    private static Guid? G(string v) => v == "" ? null : Guid.Parse(v);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can.Super) { Nav.NavigateTo("/", replace: true); return; }
+        try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+        await Task.WhenAll(LoadTokens(), LoadInstaller());
+        Every(TimeSpan.FromSeconds(15), async () => { if (_expanded is { } id) await LoadTokenDevices(id); });
+    }
+
+    private async Task SetTab(string t)
+    {
+        _tab = t;
+        try
+        {
+            if (t == "releases") _releases = await Api.GetAsync<ReleasesData>("/api/agents/releases");
+            else if (t == "trust") _info ??= await Api.GetAsync<ServerInfo>("/api/agents/server-info");
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task LoadTokens()
+    {
+        try { _tokens = await Api.GetAsync<List<TokenRow>>("/api/agents/tokens"); } catch (ApiException e) { _tokens ??= []; Toast.Fail(e); }
+    }
+
+    private async Task LoadInstaller()
+    {
+        try { _installer = await Api.GetAsync<InstallerInfo>("/api/agents/installer"); } catch (ApiException) { }
+    }
+
+    private async Task LoadTokenDevices(Guid id)
+    {
+        try { _tokenDevices = await Api.GetAsync<List<TokenDevice>>($"/api/agents/tokens/{id}/devices"); } catch (ApiException) { }
+    }
+
+    private async Task ToggleToken(TokenRow t)
+    {
+        if (t.Devices == 0) return;
+        if (_expanded == t.Id) { _expanded = null; return; }
+        _expanded = t.Id;
+        _tokenDevices = null;
+        await LoadTokenDevices(t.Id);
+    }
+
+    private async Task CreateToken()
+    {
+        try
+        {
+            var r = await Api.PostAsync<TokenResult>("/api/agents/tokens", new { name = _form.Name, orgUnitId = G(_form.OrgUnitId), days = 30, uses = 500, autoApprove = true });
+            _created = r.Token;
+            _open = false;
+            await LoadTokens();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task Revoke(TokenRow t)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = $"Revoke token \"{t.Name}\"?", Message = "No new devices can enroll with it. Devices already enrolled keep working.", ConfirmLabel = "Revoke", Danger = true })) return;
+        try { await Api.PostAsync($"/api/agents/tokens/{t.Id}/revoke"); await LoadTokens(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task CopyToken(TokenRow t)
+    {
+        if (!_revealed.TryGetValue(t.Id, out var v))
+        {
+            try { v = (await Api.PostAsync<TokenResult>($"/api/agents/tokens/{t.Id}/reveal")).Token; _revealed[t.Id] = v; }
+            catch (ApiException e) { Toast.Fail(e, "Could not reveal token"); return; }
+        }
+        if (await CopyAsync(v)) Toast.Success("Token copied", "Use it to enroll more PCs.");
+        else Toast.Error("Could not copy to the clipboard");
+    }
+
+    private async Task Regenerate(TokenRow t)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions
+            {
+                Title = $"Issue a new value for \"{t.Name}\"?",
+                Message = "This token was created before tokens could be shown again, so its value cannot be recovered. A new value will replace it - the old value stops working for new PCs. Devices already enrolled keep working and stay listed under this token.",
+                ConfirmLabel = "Issue new value",
+            })) return;
+        try
+        {
+            var r = await Api.PostAsync<TokenResult>($"/api/agents/tokens/{t.Id}/regenerate");
+            await CopyAsync(r.Token);
+            Toast.Success("New token value copied", "You can copy it again any time from the list.");
+            await LoadTokens();
+        }
+        catch (ApiException e) { Toast.Fail(e, "Could not issue a new value"); }
+    }
+
+    /// <summary>Token prefix with copy. The full token is decrypted server-side on demand (audited).</summary>
+    private RenderFragment TokenValue(TokenRow t) => t.Revealable
+        ? @<span class="inline-flex items-center gap-1">
+              <span class="font-mono text-xs">@(t.Prefix)…</span>
+              <button type="button" class="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label="Copy token" title="Copy" @onclick="() => CopyToken(t)"><Icon Name="Copy" Class="size-3.5" /></button>
+          </span>
+        : @<span class="inline-flex items-center gap-1">
+              <span class="font-mono text-xs text-muted" title="Created before tokens could be revealed: only a hash is stored">@(t.Prefix)…</span>
+              @if (t.Active)
+              {
+                  <button type="button" class="rounded p-1 text-muted hover:bg-panel-2 hover:text-fg" aria-label="Issue new token value" title="Issue a new value you can copy" @onclick="() => Regenerate(t)"><Icon Name="RefreshCw" Class="size-3.5" /></button>
+              }
+          </span>;
+
+    private RenderFragment CopyBlock(string text) =>
+        @<div class="group relative">
+            <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-zinc-950 p-4 pr-12 font-mono text-xs leading-relaxed text-zinc-100">@text</pre>
+            <button type="button" class="absolute right-2 top-2 rounded-md p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white" aria-label="Copy"
+                    @onclick="() => CopyText(text)"><Icon Name="Copy" Class="size-4" /></button>
+        </div>;
+
+    private async Task CopyText(string text)
+    {
+        if (await CopyAsync(text)) Toast.Success("Copied");
+    }
+
+    /// <summary>Devices whose latest enrollment used the expanded token, with live status.</summary>
+    private RenderFragment TokenDevices() => __builder =>
+    {
+        if (_tokenDevices is null)
+        {
+            <div class="p-3"><Skeleton Class="h-16" /></div>
+        }
+        else if (_tokenDevices.Count == 0)
+        {
+            <Empty Icon="Monitor" Title="No devices enrolled with this token" />
+        }
+        else
+        {
+            <div class="border-l-2 border-brand/40 pl-6">
+                <DataTable>
+                    <thead><tr><th>Device</th><th>Status</th><th>Connection</th><th>User</th><th>Branch</th><th>Agent</th><th>Enrolled</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _tokenDevices)
+                        {
+                            <tr>
+                                <td><a href="@($"/devices/{d.Id}")" class="font-medium hover:text-brand-ink hover:underline">@d.Hostname</a><div class="text-xs text-muted">@d.Os</div></td>
+                                <td><Badge Tone="@(d.Status == "active" ? "good" : d.Status == "pending" ? "warning" : "neutral")">@d.Status</Badge></td>
+                                <td><span class="inline-flex items-center gap-1.5 text-xs"><OnlineDot Online="d.Online" />@(d.Online ? "Online" : d.LastSeen is not null ? $"Last seen {F.Ago(d.LastSeen)}" : "Never connected")</span></td>
+                                <td class="max-w-40 truncate text-xs text-fg-2">@(d.User ?? "—")</td>
+                                <td class="text-xs text-fg-2">@(d.OrgUnit ?? "Unassigned")</td>
+                                <td class="font-mono text-xs">@d.AgentVersion</td>
+                                <td class="text-xs text-muted">@F.Ago(d.EnrolledAt)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </DataTable>
+            </div>
+        }
+    };
+
+    private async Task DownloadInstaller()
+    {
+        _busy = true;
+        try
+        {
+            var body = new
+            {
+                orgUnitId = G(_inst.OrgUnitId), serverUrl = Server, uninstallKey = _inst.UninstallKey, uses = _inst.Uses, days = _inst.Days,
+                autoApprove = _inst.AutoApprove, trustOnFirstUse = _inst.TrustOnFirstUse,
+            };
+            var (bytes, name, type) = await Api.DownloadAsync("/api/agents/installer", body, "SentinelDesk-Setup.exe");
+            await SaveFileAsync(name, type, bytes);
+            Toast.Success($"{name} downloaded", "Send this file to the office. It installs with administrator rights - no settings to type.");
+            await LoadTokens();
+        }
+        catch (ApiException e) { Toast.Fail(e, "Download failed"); }
+        finally { _busy = false; }
+    }
+
+    private async Task Upload()
+    {
+        if (_file is null) return;
+        _busy = true;
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var stream = new StreamContent(_file.OpenReadStream(maxAllowedSize: 512L * 1024 * 1024, cancellationToken: Lifetime));
+            form.Add(stream, "package", _file.Name);
+            form.Add(new StringContent(_version), "version");
+            form.Add(new StringContent(_notes), "notes");
+            await Api.PostFormAsync<Data.AgentRelease>("/api/agents/releases", form);
+            Toast.Success("Release uploaded and signed");
+            _file = null; _version = ""; _notes = "";
+            _releases = await Api.GetAsync<ReleasesData>("/api/agents/releases");
+        }
+        catch (ApiException e) { Toast.Fail(e, "Upload failed"); }
+        catch (IOException e) { Toast.Error("Upload failed", e.Message); }
+        finally { _busy = false; }
+    }
+
+    private async Task Rollout(Data.AgentRelease r, int pct)
+    {
+        try
+        {
+            await Api.PostAsync($"/api/agents/releases/{r.Id}/rollout", new { percent = pct });
+            Toast.Success($"v{r.Version} rolling out to {pct}% of devices");
+            _releases = await Api.GetAsync<ReleasesData>("/api/agents/releases");
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task DeleteRelease(Data.AgentRelease r)
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = $"Delete release {r.Version}?", Message = "The package is removed from the server. This can't be undone.", Danger = true })) return;
+        try { await Api.DeleteAsync($"/api/agents/releases/{r.Id}"); _releases = await Api.GetAsync<ReleasesData>("/api/agents/releases"); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task PurgeDemo()
+    {
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = "Purge simulated devices?", Message = "All simulated devices and their data are deleted. Real devices are not affected.", ConfirmLabel = "Purge", Danger = true })) return;
+        try
+        {
+            var r = await Api.DeleteAsync<RemovedResult>("/api/devices/simulated");
+            Toast.Success($"Removed {r?.Removed ?? 0} simulated devices");
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

@@ -19,6 +19,8 @@ public static class ManagementEndpoints
     public sealed record UserRequest(string Username, string DisplayName, string? Email, string Role, Guid? OrgUnitScope, string? Password, bool Disabled);
     public sealed record RolloutRequest(int Percent);
     public sealed record IdsRequest(long[] Ids);
+    /// <summary>SentinelDesk-Setup.package.json, written by build.ps1: the agent package embedded in the setup file.</summary>
+    public sealed record SetupPackage(string Version, string Sha256);
 
     public static void MapManagementApi(this WebApplication app)
     {
@@ -481,6 +483,16 @@ public static class ManagementEndpoints
                 ["server"] = server.GetLeftPart(UriPartial.Authority), ["token"] = raw, ["uninstallKeyHash"] = KeyHash.Hash(r.UninstallKey),
                 ["tofu"] = r.TrustOnFirstUse ? "1" : "0", ["pin"] = r.ServerCertSha256?.Replace(":", "").Trim(), ["org"] = org, ["branch"] = unit?.Name,
             };
+            // Sign the embedded agent package (same "{version}|{sha256}" signature as uploaded releases): with it, this
+            // installer can also upgrade an older agent, because the agent's Guard service only installs packages signed
+            // by this server. build.ps1 writes the package's version and hash next to the setup file.
+            var packageFile = Path.Combine(Path.GetDirectoryName(path)!, "SentinelDesk-Setup.package.json");
+            if (File.Exists(packageFile) && Json.Deserialize<SetupPackage>(await File.ReadAllTextAsync(packageFile)) is { Version.Length: > 0, Sha256.Length: > 0 } pkg)
+            {
+                settings["packageVersion"] = pkg.Version;
+                settings["packageSha256"] = pkg.Sha256;
+                settings["packageSignature"] = Signing.Sign(keys.SigningKey, $"{pkg.Version}|{pkg.Sha256}");
+            }
             var body = Encoding.UTF8.GetBytes(string.Join('\n', settings.Where(kv => !string.IsNullOrEmpty(kv.Value)).Select(kv => $"{kv.Key}={kv.Value}")));
             var exe = await File.ReadAllBytesAsync(path);
             var file = new byte[exe.Length + body.Length + 12];

@@ -1,0 +1,51 @@
+/* Styles for console pieces that the compiled design tokens (tailwind.css) do not cover. */
+
+/* toasts (bottom-right) */
+.sd-toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 80; display: flex; flex-direction: column; gap: .5rem; width: min(22rem, calc(100vw - 2rem)); }
+.sd-toast { display: flex; gap: .625rem; align-items: flex-start; padding: .75rem .875rem; border-radius: .5rem; border: 1px solid var(--line-strong);
+  background: var(--panel); color: var(--fg); box-shadow: 0 10px 30px -10px rgba(0,0,0,.25); font-size: 13px; animation: rise .28s ease-out both; }
+.sd-toast svg { width: 1rem; height: 1rem; flex-shrink: 0; margin-top: 1px; }
+.sd-toast-success { border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+.sd-toast-success svg { color: var(--good-ink); }
+.sd-toast-error { border-color: color-mix(in srgb, var(--critical) 40%, var(--line)); background: color-mix(in srgb, var(--critical) 7%, var(--panel)); }
+.sd-toast-error svg { color: var(--critical); }
+.sd-toast-warning { border-color: color-mix(in srgb, var(--warning) 50%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--panel)); }
+.sd-toast-warning svg { color: #b45309; }
+:root.dark .sd-toast-warning svg { color: var(--warning); }
+.sd-toast-info svg { color: var(--brand-ink); }
+.sd-toast-title { font-weight: 500; }
+.sd-toast-desc { margin-top: .125rem; color: var(--fg-2); font-size: 12px; }
+.sd-toast-action { margin-left: auto; flex-shrink: 0; border-radius: .375rem; padding: .125rem .5rem; font-size: 12px; font-weight: 500; background: var(--fg); color: var(--panel); }
+.sd-toast-close { flex-shrink: 0; color: var(--muted); }
+.sd-toast-close:hover { color: var(--fg); }
+.sd-toast-close svg { width: .875rem; height: .875rem; margin: 0; }
+
+/* charts (SVG drawn on the server) */
+.sd-chart { position: relative; width: 100%; user-select: none; }
+.sd-chart svg { display: block; width: 100%; overflow: visible; }
+.sd-chart-hit { position: absolute; inset: 0 0 22px 0; display: flex; }
+.sd-chart-hit > div { flex: 1 1 0; height: 100%; }
+.sd-chart-x { position: relative; height: 22px; font-size: 11px; color: var(--muted); }
+.sd-chart-x span { position: absolute; top: 6px; transform: translateX(-50%); white-space: nowrap; }
+.sd-chart-x span.first { transform: none; }
+.sd-chart-x span.last { transform: translateX(-100%); }
+.sd-chart-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 9999px; border: 2px solid var(--panel); pointer-events: none; }
+.sd-chart-dot.small { width: 6px; height: 6px; margin: -3px 0 0 -3px; }
+.sd-chart-tip { position: absolute; top: 4px; z-index: 10; pointer-events: none; }
+
+/* custom select: list layer above modals */
+.sd-select-backdrop { position: fixed; inset: 0; z-index: 69; }
+
+/* QR code */
+.sd-qr svg { width: 148px; height: 148px; display: block; }
+
+/* date and time pickers */
+.sd-cal-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.sd-dis:disabled { opacity: .35; pointer-events: none; }
+.sd-pt-2 { padding-top: .5rem; }
+.sd-w-24 { width: 6rem; }
+.sd-time-col { width: 3.5rem; max-height: 14rem; overflow-y: auto; }
+
+/* Entrance animation: do not keep the final transform once it has played. A lingering animated transform makes the
+   card/dialog the containing block of position:fixed children, which would misplace drop-downs and pickers inside it. */
+.animate-rise { animation-fill-mode: backwards; }

@@ -1,4 +1,4 @@
-bin/
+﻿bin/
 obj/
 # build output - release binaries are published as GitHub Release assets, not committed
 publish/
@@ -8,10 +8,7 @@ node_modules/
 .vscode/*
 !.vscode/extensions.json
 
-# build output of the web console (served by the server)
-src/SentinelDesk.Server/wwwroot/
-
-# runtime data: SQLite DB and server key material — never commit
+# runtime data: SQLite DB and server key material â€” never commit
 data/
 # ...but not the server's source folder Data/ (Windows paths are case-insensitive, so data/ also matched it)
 !src/SentinelDesk.Server/Data/

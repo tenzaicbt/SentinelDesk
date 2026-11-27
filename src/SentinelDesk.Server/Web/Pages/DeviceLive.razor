@@ -4,6 +4,7 @@
     var todayOut = Math.Max(D.Today.BytesOut, p?.TodayOut ?? 0);
     var subtitle = p is null ? $"Device offline · last seen {F.Ago(D.LastSeenAt)}"
         : Stream is not null ? $"Streaming live · a new sample every {Stream.IntervalMs} ms"
+        : LiveOff ? $"Updated {F.Ago(p.LastSeen)} · live samples are off (Agent management → Live data), updating with heartbeats"
         : $"Updated {F.Ago(p.LastSeen)} · {(D.LiveChannel ? "live channel connected" : "heartbeat polling")}";
 }
 <div class="space-y-3">
@@ -29,4 +30,5 @@
     [Parameter] public LivePresence? P { get; set; }
     [Parameter] public List<HistPoint> NetHist { get; set; } = [];
     [Parameter] public StreamState? Stream { get; set; }
+    [Parameter] public bool LiveOff { get; set; }
 }

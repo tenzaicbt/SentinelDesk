@@ -65,13 +65,13 @@ else
         @switch (_tab)
         {
             case "live":
-                <DeviceLive D="d" P="p" NetHist="_netHist" Stream="stream" />
+                <DeviceLive D="d" P="p" NetHist="_netHist" Stream="stream" LiveOff="_liveOff" />
                 break;
             case "details":
                 <DeviceDetails D="d" P="p" Online="online" />
                 break;
             case "bandwidth":
-                <DeviceBandwidth Id="d.Id" P="p" NetHist="_netHist" Stream="stream" />
+                <DeviceBandwidth Id="d.Id" P="p" NetHist="_netHist" Stream="stream" LiveOff="_liveOff" />
                 break;
             case "web":
                 <DeviceWebsites Id="d.Id" />
@@ -101,6 +101,7 @@ else
     private DateTime _lastSampleAt = DateTime.MinValue;
     private Guid _loaded;
     private IAsyncDisposable? _watch;
+    private bool _liveOff;
 
     private bool Streaming(DateTime now) => now - _lastSampleAt < TimeSpan.FromSeconds(3);
     private bool Online => _presence is not null && DateTime.UtcNow - _presence.LastSeen < TimeSpan.FromSeconds(150);
@@ -134,6 +135,7 @@ else
         _watch = await Hub.JoinAsync("WatchDevice", "UnwatchDevice", Id);
         await Load();
         _presence = _d?.Presence;
+        try { _liveOff = (await Api.GetAsync<LiveSettings>("/api/settings/live")).IntervalMs == 0; } catch (ApiException) { }
     }
 
     private async Task Load()

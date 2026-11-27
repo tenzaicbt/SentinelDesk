@@ -1,8 +1,8 @@
 @page "/agents"
 @inherits ConsolePage
 
-<PageHeader Title="Agent management" Icon="KeyRound" Subtitle="Enrollment, staged upgrades and trust configuration" />
-<Tabs Items="@([new TabItem("enroll", "Enrollment", "KeyRound"), new TabItem("releases", "Releases & rollout", "Rocket"), new TabItem("trust", "Trust & keys", "ShieldCheck")])" Value="@_tab" ValueChanged="SetTab" />
+<PageHeader Title="Agent management" Icon="KeyRound" Subtitle="Enrollment, staged upgrades, live data and trust configuration" />
+<Tabs Items="@([new TabItem("enroll", "Enrollment", "KeyRound"), new TabItem("releases", "Releases & rollout", "Rocket"), new TabItem("live", "Live data", "Radio"), new TabItem("trust", "Trust & keys", "ShieldCheck")])" Value="@_tab" ValueChanged="SetTab" />
 <div class="mt-3">
     @if (_tab == "enroll")
     {
@@ -243,6 +243,10 @@
                 }
             </Card>
         </div>
+    }
+    else if (_tab == "live")
+    {
+        <LiveRateSettings />
     }
     else
     {

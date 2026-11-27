@@ -8,14 +8,22 @@ namespace SentinelDesk.Server.Services;
 /// <see cref="Shared.LiveSample"/>s only while somebody is actually looking at it.
 /// The first watcher starts the device's stream, the last one to leave stops it.
 /// </summary>
-public sealed class LiveStreamRegistry(IConfiguration config)
+public sealed class LiveStreamRegistry(IConfiguration config, ServerSettings settings)
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, HashSet<string>> _byDevice = new();
     private readonly Dictionary<string, HashSet<Guid>> _byConnection = new();
 
-    /// <summary>Sample interval the agent is asked to stream at (Live:StreamIntervalMs, 250–5000, default 500).</summary>
-    public int IntervalMs { get; } = Math.Clamp(config.GetValue("Live:StreamIntervalMs", 500), 250, 5000);
+    /// <summary>Refresh rates an administrator can choose in the console (0 = off: the device page uses heartbeats only).</summary>
+    public static readonly int[] Choices = [0, 500, 1000, 2000, 5000];
+
+    /// <summary>Default when nothing was chosen in the console: Live:StreamIntervalMs (250–5000, default 500).</summary>
+    public int DefaultIntervalMs { get; } = Math.Clamp(config.GetValue("Live:StreamIntervalMs", 500), 250, 5000);
+
+    /// <summary>Sample interval the agent is asked to stream at, as set in the console (0 = live stream off).</summary>
+    public int IntervalMs => settings.Current.LiveStreamIntervalMs is { } v ? (v == 0 ? 0 : Math.Clamp(v, 250, 5000)) : DefaultIntervalMs;
+
+    public bool Enabled => IntervalMs > 0;
 
     /// <summary>Agents stop streaming on their own if not renewed within this window (dead console, lost stop message).</summary>
     public const int LeaseSec = 45;
@@ -72,7 +80,7 @@ public sealed class LiveStreamRegistry(IConfiguration config)
 public sealed class LiveStreamControl(LiveStreamRegistry registry, PresenceStore presence, IHubContext<AgentHub> agents)
 {
     public Task StartAsync(Guid deviceId) =>
-        presence.AgentConnection(deviceId) is { } c
+        registry.Enabled && presence.AgentConnection(deviceId) is { } c
             ? agents.Clients.Client(c).SendAsync("startStream", registry.IntervalMs, LiveStreamRegistry.LeaseSec)
             : Task.CompletedTask;
 
@@ -87,8 +95,9 @@ public sealed class LiveStreamRenewer(LiveStreamRegistry registry, LiveStreamCon
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
         while (await timer.WaitForNextTickAsync(ct))
-            foreach (var d in registry.Watched())
-                try { await control.StartAsync(d); }
-                catch (Exception ex) { log.LogDebug("Stream lease renewal for {Device} failed: {Message}", d, ex.Message); }
+            if (registry.Enabled)
+                foreach (var d in registry.Watched())
+                    try { await control.StartAsync(d); }
+                    catch (Exception ex) { log.LogDebug("Stream lease renewal for {Device} failed: {Message}", d, ex.Message); }
     }
 }

@@ -1,0 +1,107 @@
+@* Live view refresh rate: how often a device being watched sends a live sample (smoothness vs. bandwidth). *@
+@if (_s is null)
+{
+    <Skeleton Class="h-64" />
+}
+else
+{
+    <div class="grid gap-3 xl:grid-cols-3">
+        <Card Class="xl:col-span-2" Title="Live view refresh rate"
+              Subtitle="How often a computer sends live CPU, memory, network and foreground-app samples while someone has its device page open. Slower rates use less bandwidth on branch links.">
+            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                @foreach (var ms in _s.Choices)
+                {
+                    var on = ms == _s.IntervalMs;
+                    <button type="button" disabled="@(_busy || !Session.Can.Super)" aria-pressed="@(on ? "true" : "false")" @onclick="() => Set(ms)"
+                            class="@Cls.Join("flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition sd-dis", on ? "border-brand/60 bg-brand-soft" : "border-line hover:border-line-strong")">
+                        <span class="flex w-full items-center justify-between gap-2">
+                            <span class="text-sm font-medium">@Label(ms)</span>
+                            @if (on)
+                            {
+                                <Badge Tone="brand" Icon="Check">In use</Badge>
+                            }
+                            else if (ms == _s.DefaultIntervalMs)
+                            {
+                                <span class="text-[11px] text-muted">default</span>
+                            }
+                        </span>
+                        <span class="text-xs text-fg-2">@Bandwidth(ms)</span>
+                        <span class="text-xs text-muted">@Note(ms)</span>
+                    </button>
+                }
+            </div>
+            <p class="mt-3 text-xs text-muted">
+                @if (_s.ChangedAt is not null)
+                {
+                    @($"Changed {F.Ago(_s.ChangedAt)}{(_s.ChangedBy is not null ? $" by {_s.ChangedBy}" : "")}. ")
+                }
+                Applies at once, also to device pages that are open now (@Fmt.Plural(_s.WatchedDevices, "device", "devices") being watched). Changes are recorded in the audit log.
+            </p>
+            @if (!Session.Can.Super)
+            {
+                <div class="mt-3"><Callout Tone="warning">Only Super Admins can change the refresh rate.</Callout></div>
+            }
+        </Card>
+        <Card Title="How the bandwidth adds up">
+            <ul class="space-y-2.5 text-sm text-fg-2">
+                <li class="flex gap-2"><Icon Name="Radio" Class="mt-0.5 size-4 shrink-0 text-muted" />Live samples are sent only while a device page is open in the console, and stop on their own when it is closed.</li>
+                <li class="flex gap-2"><Icon Name="Monitor" Class="mt-0.5 size-4 shrink-0 text-muted" />Each sample is about @SampleBytes bytes, sent once by the computer and once to each person viewing it.</li>
+                <li class="flex gap-2"><Icon Name="Activity" Class="mt-0.5 size-4 shrink-0 text-muted" />Heartbeats (every 30 seconds by default) and the Live view page are not affected: they work at every setting, including Off.</li>
+            </ul>
+        </Card>
+    </div>
+}
+
+@code {
+    /// <summary>Approximate size of one live sample on the wire (JSON + SignalR framing).</summary>
+    private const int SampleBytes = 350;
+
+    private LiveSettings? _s;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _s = await Api.GetAsync<LiveSettings>("/api/settings/live"); }
+        catch (ApiException e) { Toast.Fail(e, "Could not load the live data settings"); }
+    }
+
+    private static string Label(int ms) => ms switch
+    {
+        0 => "Off",
+        < 1000 => $"Every {ms / 1000.0:0.#} seconds",
+        1000 => "Every second",
+        _ => $"Every {ms / 1000} seconds",
+    };
+
+    private static string Bandwidth(int ms)
+    {
+        if (ms == 0) return "No live samples";
+        var perHour = SampleBytes * 3600.0 * 1000 / ms;
+        return $"≈ {Fmt.Bytes(perHour / 60)}/min · {Fmt.Bytes(perHour)}/hour per device being watched";
+    }
+
+    private static string Note(int ms) => ms switch
+    {
+        0 => "Device pages update with heartbeats only",
+        <= 500 => "Smoothest live charts",
+        <= 1000 => "Smooth, half the traffic",
+        <= 2000 => "Good for most branch links",
+        _ => "Slow or metered links",
+    };
+
+    private async Task Set(int ms)
+    {
+        if (_s is null || ms == _s.IntervalMs || !Session.Can.Super) return;
+        _busy = true;
+        try
+        {
+            await Api.PutAsync("/api/settings/live", new { intervalMs = ms });
+            Toast.Success(ms == 0 ? "Live samples turned off" : $"Live view refresh rate: {Label(ms).ToLowerInvariant()}");
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+        finally { _busy = false; }
+    }
+}

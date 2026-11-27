@@ -120,3 +120,6 @@ public sealed record AppsReport(List<Endpoints.ReportEndpoints.AppRow> Rows);
 public sealed record WebReport(List<Endpoints.ReportEndpoints.WebRow> Rows, List<CategoryHits> Categories);
 public sealed record InventoryReport(List<Endpoints.ReportEndpoints.InventoryRow> Rows);
 public sealed record SoftwareReport(List<Endpoints.ReportEndpoints.SoftwareRow> Rows);
+
+// ── settings
+public sealed record LiveSettings(int IntervalMs, int DefaultIntervalMs, List<int> Choices, DateTime? ChangedAt, string? ChangedBy, int WatchedDevices);

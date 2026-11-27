@@ -70,7 +70,7 @@ public sealed class AgentHub(PresenceStore presence, AppDb db, IHubContext<Conso
         presence.AgentConnected(DeviceId, Context.ConnectionId);
         log.LogInformation("Agent {Device} connected to live channel", DeviceId);
         // (re)connected while someone is watching: resume the live stream straight away
-        if (streams.IsWatched(DeviceId))
+        if (streams.Enabled && streams.IsWatched(DeviceId))
             await Clients.Caller.SendAsync("startStream", streams.IntervalMs, LiveStreamRegistry.LeaseSec);
         await base.OnConnectedAsync();
     }

@@ -3,7 +3,7 @@
 }
 <div class="grid gap-3 xl:grid-cols-3">
     <Card Class="xl:col-span-2" Title="Live throughput"
-          Subtitle="@(P is null ? "Device offline" : Stream is not null ? $"Streaming live · every {Stream.IntervalMs} ms" : "From heartbeats (every few seconds) until the live stream connects")">
+          Subtitle="@(P is null ? "Device offline" : Stream is not null ? $"Streaming live · every {Stream.IntervalMs} ms" : LiveOff ? "From heartbeats: live samples are off (Agent management → Live data)" : "From heartbeats (every few seconds) until the live stream connects")">
         <Actions><div class="flex items-center gap-3"><StreamBadge Stream="Stream" /><Legend Items="Legend.DownUp" /></div></Actions>
         <ChildContent>
             @if (NetHist.Count > 1)
@@ -90,6 +90,7 @@
     [Parameter] public LivePresence? P { get; set; }
     [Parameter] public List<HistPoint> NetHist { get; set; } = [];
     [Parameter] public StreamState? Stream { get; set; }
+    [Parameter] public bool LiveOff { get; set; }
 
     private static readonly ChartSeries[] InOut = [new("in", "Download", Series.Down), new("out", "Upload", Series.Up)];
 

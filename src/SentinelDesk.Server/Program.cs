@@ -97,6 +97,7 @@ builder.Services.AddSingleton<DeviceCache>();
 builder.Services.AddSingleton<DeviceCacheInvalidator>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<Notifier>();
+builder.Services.AddSingleton<ServerSettings>();
 builder.Services.AddSingleton<LiveStreamRegistry>();
 builder.Services.AddSingleton<LiveStreamControl>();
 builder.Services.AddScoped<HeartbeatService>();
@@ -197,6 +198,7 @@ app.MapDeviceApi();
 app.MapManagementApi();
 app.MapBlockingApi();
 app.MapReportApi();
+app.MapSettingsApi();
 app.MapHub<ConsoleHub>("/hubs/console");
 app.MapHub<AgentHub>("/hubs/agent");
 

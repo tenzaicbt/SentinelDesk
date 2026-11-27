@@ -1,0 +1,60 @@
+@* Island map: marker size = device count, ring = share online (status color + tooltip text, never color alone).
+   Falls back to an offline view (no basemap, labelled markers) if tiles are blocked or there is no internet. *@
+@implements IAsyncDisposable
+@inject IConfiguration Config
+<div class="relative">
+    <div @ref="_el" style="height:@(Height)px;width:100%"></div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BranchPoint> Branches { get; set; } = [];
+    [Parameter] public IReadOnlyList<DevicePoint>? Devices { get; set; }
+    [Parameter] public int Height { get; set; } = 360;
+    [Parameter] public EventCallback<Guid> OnSelect { get; set; }
+    [Parameter] public EventCallback<Guid> OnSelectDevice { get; set; }
+    [CascadingParameter(Name = "Dark")] public bool Dark { get; set; }
+
+    private ElementReference _el;
+    private int? _id;
+    private DotNetObjectReference<BranchMap>? _ref;
+
+    private object Cfg() => new
+    {
+        dark = Dark,
+        tileUrl = Config["Console:MapTileUrl"],
+        attribution = Config["Console:MapTileAttribution"] ?? "Esri, HERE, Garmin, &copy; OpenStreetMap contributors",
+        branches = Branches.Select(b => new { id = b.Id, name = b.Name, lat = b.Lat, lng = b.Lng, total = b.Total, online = b.Online, todayText = Fmt.Bytes(b.TodayBytes) }),
+        devices = (Devices ?? []).Select(d => new
+        {
+            id = d.Id, hostname = d.Hostname, lat = d.Lat, lng = d.Lng, accuracyM = d.AccuracyM, online = d.Online,
+            line2 = (d.Online ? "Online" : "Offline") + (d.User is not null ? $" · {d.User}" : ""),
+            line3 = $"±{Math.Round(d.AccuracyM)} m" + (d.Source is not null ? $" · {d.Source}" : "") + (d.At is not null ? $" · {F.Ago(d.At)}" : ""),
+        }),
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                _ref = DotNetObjectReference.Create(this);
+                _id = await JS.InvokeAsync<int>("sd.branchMap", _el, Cfg(), _ref);
+            }
+            else if (_id is { } id) await JS.InvokeVoidAsync("sd.updateBranchMap", id, Cfg());
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    [JSInvokable] public Task SelectBranch(Guid id) => OnSelect.InvokeAsync(id);
+    [JSInvokable] public Task SelectDevice(Guid id) => OnSelectDevice.InvokeAsync(id);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_id is { } id) await JS.InvokeVoidAsync("sd.disposeMap", id); }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
+        _ref?.Dispose();
+    }
+}

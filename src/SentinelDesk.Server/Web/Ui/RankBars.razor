@@ -1,0 +1,39 @@
+@* Ranked horizontal bars rendered in HTML (crisp labels, scales to any count). *@
+<ul class="space-y-2.5">
+    @foreach (var r in Rows)
+    {
+        <li class="@(OnClick.HasDelegate ? "group cursor-pointer" : "group")" @onclick="() => Click(r.Key)" title="@Format(r.Value)">
+            <div class="mb-1 flex items-baseline justify-between gap-3 text-[13px]">
+                <span class="min-w-0 truncate text-fg group-hover:underline decoration-line-strong underline-offset-2">
+                    @if (r.LabelContent is not null)
+                    {
+                        @r.LabelContent
+                    }
+                    else
+                    {
+                        @r.Label
+                    }
+                </span>
+                <span class="shrink-0 tabular text-fg-2">@Format(r.Value)@if (r.Sub is not null)
+                    {
+                        <span class="ml-1.5 text-muted">@r.Sub</span>
+                    }</span>
+            </div>
+            <div class="h-1.5 rounded-full bg-panel-2">
+                <div class="h-full rounded-full transition-[width] duration-700" style="width:@(Cls.Css(Math.Max(2, r.Value / Max * 100)))%;background:@Color"></div>
+            </div>
+        </li>
+    }
+</ul>
+
+@code {
+    public sealed record Bar(string Key, string Label, double Value, string? Sub = null, RenderFragment? LabelContent = null);
+
+    [Parameter, EditorRequired] public IEnumerable<Bar> Rows { get; set; } = [];
+    [Parameter, EditorRequired] public Func<double, string> Format { get; set; } = v => v.ToString();
+    [Parameter] public string Color { get; set; } = "var(--series-1)";
+    [Parameter] public EventCallback<string> OnClick { get; set; }
+
+    private double Max => Math.Max(1, Rows.Select(r => r.Value).DefaultIfEmpty(0).Max());
+    private Task Click(string key) => OnClick.HasDelegate ? OnClick.InvokeAsync(key) : Task.CompletedTask;
+}

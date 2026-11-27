@@ -1,0 +1,15 @@
+@using QRCoder
+<div class="sd-qr">@((MarkupString)Svg)</div>
+
+@code {
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+
+    private string Svg = "";
+
+    protected override void OnParametersSet()
+    {
+        using var gen = new QRCodeGenerator();
+        using var data = gen.CreateQrCode(Value, QRCodeGenerator.ECCLevel.L);
+        Svg = new SvgQRCode(data).GetGraphic(4, "#000000", "#ffffff", drawQuietZones: false);
+    }
+}

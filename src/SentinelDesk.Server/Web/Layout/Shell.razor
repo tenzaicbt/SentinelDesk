@@ -1,0 +1,253 @@
+@* Console frame: sidebar navigation, header (search, theme, alerts) and the routed page. *@
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject LiveHub Hub
+
+<div class="flex h-full bg-page dark:bg-panel">
+    <div class="@Cls.Join("hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-linear lg:block", _collapsed ? "w-0" : "w-64")">@Sidebar</div>
+    @if (_mobileNav)
+    {
+        <div class="fixed inset-0 z-40 lg:hidden">
+            <div class="absolute inset-0 bg-black/50" @onclick="() => _mobileNav = false"></div>
+            <div class="absolute inset-y-0 left-0 border-r border-line shadow-lg animate-rise">@Sidebar</div>
+        </div>
+    }
+
+    @* inset content *@
+    <div class="flex min-w-0 flex-1 flex-col overflow-hidden bg-panel dark:bg-page lg:m-2 lg:rounded-xl lg:shadow-sm lg:ring-1 lg:ring-line">
+        <header class="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 lg:px-6">
+            <button type="button" @onclick="ToggleSidebar" class="-ml-1 grid size-7 place-items-center rounded-md text-fg hover:bg-panel-2" aria-label="Toggle sidebar" title="Toggle sidebar (Ctrl B)">
+                <Icon Name="PanelLeft" Class="size-4" />
+            </button>
+            <div class="mx-2 h-4 w-px bg-line"></div>
+            <h1 class="truncate text-base font-medium">@PageTitle</h1>
+            <div class="ml-auto flex items-center gap-1.5">
+                <button type="button" @onclick="() => _palette = true"
+                        class="hidden h-8 w-64 items-center gap-2 rounded-md border border-line-strong bg-panel px-3 text-sm text-muted shadow-xs transition hover:bg-panel-2 dark:bg-white/4.5 md:flex">
+                    <Icon Name="Search" Class="size-4" />
+                    <span class="flex-1 text-left">Search…</span>
+                    <kbd class="rounded border border-line bg-panel-2 px-1.5 font-mono text-[10px] font-medium">Ctrl K</kbd>
+                </button>
+                <button type="button" @onclick="() => _palette = true" class="grid size-8 place-items-center rounded-md hover:bg-panel-2 md:hidden" aria-label="Search"><Icon Name="Search" Class="size-4" /></button>
+                <button type="button" @onclick="Session.ToggleThemeAsync" class="grid size-8 place-items-center rounded-md hover:bg-panel-2" aria-label="Toggle theme" title="Toggle theme">
+                    <Icon Name="@(Session.Dark ? "Sun" : "Moon")" Class="size-4" />
+                </button>
+                <a href="/alerts" class="relative grid size-8 place-items-center rounded-md hover:bg-panel-2" aria-label="Alerts">
+                    <Icon Name="Bell" Class="size-4" />
+                    @if (_alertCount > 0)
+                    {
+                        <span class="absolute right-1.5 top-1.5 size-2 rounded-full bg-critical ring-2 ring-panel dark:ring-page"></span>
+                    }
+                </a>
+            </div>
+        </header>
+        <main class="flex-1 overflow-y-auto">
+            <div class="mx-auto w-full max-w-[1800px] px-3 py-3 lg:px-4">
+                @Body
+            </div>
+        </main>
+    </div>
+    <CommandPalette Open="_palette" OnClose="() => _palette = false" />
+</div>
+
+@code {
+    private sealed record NavItem(string To, string Label, string Icon, string? Perm = null, bool Badge = false);
+
+    private static readonly (string Section, NavItem[] Items)[] Menu =
+    [
+        ("Monitor", [
+            new("/", "Overview", "LayoutDashboard"), new("/live", "Live view", "Radio", "live"), new("/devices", "Devices", "Monitor"),
+            new("/alerts", "Alerts", "Bell", Badge: true), new("/reports", "Reports", "FileBarChart2"),
+        ]),
+        ("Manage", [
+            new("/policies", "Policies", "SlidersHorizontal"), new("/organization", "Organization", "Building2"), new("/agents", "Agent management", "KeyRound", "super"),
+        ]),
+        ("Administration", [
+            new("/users", "Admin users", "Users", "super"), new("/audit", "Audit log", "ScrollText", "audit"),
+        ]),
+    ];
+
+    private bool _palette, _mobileNav, _collapsed, _userMenu;
+    private int _alertCount;
+    private PeriodicTimer? _timer;
+    private DotNetObjectReference<Shell>? _ref;
+
+    private string Path => ("/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0]).TrimEnd('/') is { Length: > 0 } p ? p : "/";
+
+    private bool Allowed(NavItem i) => i.Perm switch
+    {
+        "live" => Session.Can.Live,
+        "super" => Session.Can.Super,
+        "audit" => Session.Can.Audit,
+        _ => true,
+    };
+
+    private bool IsActive(NavItem i) => i.To == "/" ? Path == "/" : Path == i.To || Path.StartsWith(i.To + "/");
+
+    private string PageTitle
+    {
+        get
+        {
+            var p = Path;
+            if (p == "/") return "Overview";
+            if (p.StartsWith("/profile")) return "Profile & security";
+            return Menu.SelectMany(g => g.Items).Where(i => i.To != "/" && p.StartsWith(i.To)).OrderByDescending(i => i.To.Length).FirstOrDefault()?.Label ?? "SentinelDesk";
+        }
+    }
+
+    private string Initials => string.Concat((Session.Me?.DisplayName ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(p => p[0]).Take(2)).ToUpperInvariant();
+
+    private RenderFragment Sidebar => @<aside class="flex h-full w-64 flex-col bg-page text-fg dark:bg-panel">
+        @* header: product *@
+        <div class="p-2">
+            <a href="/" class="flex h-12 items-center gap-2 rounded-md px-2 hover:bg-panel-2">
+                <img src="/brand/icon.png" alt="" class="size-8 shrink-0 object-contain" />
+                <div class="grid flex-1 text-left leading-tight">
+                    <Wordmark Class="text-[15px]" />
+                    <span class="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted">Endpoint metrics</span>
+                </div>
+            </a>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto px-2">
+            @foreach (var (section, all) in Menu)
+            {
+                var items = all.Where(Allowed).ToList();
+                if (items.Count == 0) continue;
+                <div class="relative flex flex-col p-2">
+                    <div class="flex h-8 items-center px-2 text-xs font-medium text-muted">@section</div>
+                    <ul class="flex flex-col gap-1">
+                        @foreach (var i in items)
+                        {
+                            <li>
+                                <a href="@i.To" class="@Cls.Join("flex h-8 items-center gap-2 rounded-md px-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                                                               IsActive(i) ? "bg-brand-soft font-medium text-fg [&>svg]:text-brand" : "text-fg-2 hover:bg-panel-2 hover:text-fg")">
+                                    <Icon Name="@i.Icon" Class="size-4 shrink-0" />
+                                    <span class="flex-1 truncate">@i.Label</span>
+                                    @if (i.Badge && _alertCount > 0)
+                                    {
+                                        <span class="flex h-5 min-w-5 items-center justify-center rounded-md bg-brand px-1 text-xs font-medium tabular text-white">@(_alertCount > 99 ? "99+" : _alertCount.ToString())</span>
+                                    }
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        </nav>
+
+        @* footer: live status + user *@
+        <div class="flex flex-col gap-2 p-2">
+            <div class="flex items-center gap-2 px-2 text-xs text-muted">
+                <span class="@Cls.Join("size-1.5 rounded-full", Hub.Connected ? "bg-good" : "bg-warning")"></span>
+                @(Hub.Connected ? "Live updates connected" : "Reconnecting live updates…")
+            </div>
+            <Credit Class="px-2" />
+            <div class="relative">
+                <button type="button" @onclick="() => _userMenu = !_userMenu"
+                        class="@Cls.Join("flex h-12 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-panel-2", Cls.If(_userMenu, "bg-panel-2"))">
+                    <div class="grid size-8 shrink-0 place-items-center rounded-lg bg-panel-2 text-xs font-medium ring-1 ring-line">@Initials</div>
+                    <div class="grid flex-1 leading-tight">
+                        <span class="truncate font-medium">@Session.Me?.DisplayName</span>
+                        <span class="truncate text-xs text-muted">@Session.Me?.Role@(Session.Me?.ScopeName is { } s ? $" · {s}" : "")</span>
+                    </div>
+                    <Icon Name="ChevronsUpDown" Class="size-4 text-muted" />
+                </button>
+                @if (_userMenu)
+                {
+                    <div class="absolute inset-x-0 bottom-14 z-50 rounded-lg border border-line bg-panel p-1 text-fg shadow-md animate-rise" @onmouseleave="() => _userMenu = false">
+                        <div class="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                            <div class="grid size-8 place-items-center rounded-lg bg-panel-2 text-xs font-medium">@Initials</div>
+                            <div class="grid flex-1 leading-tight"><span class="truncate font-medium">@Session.Me?.DisplayName</span><span class="truncate text-xs text-muted">@Session.Me?.Username</span></div>
+                        </div>
+                        <div class="-mx-1 my-1 h-px bg-line"></div>
+                        <button type="button" @onclick='() => { _userMenu = false; Nav.NavigateTo("/profile"); }' class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-panel-2 [&_svg]:text-muted"><Icon Name="UserCog" Class="size-4" />Profile &amp; security</button>
+                        <button type="button" @onclick="Session.ToggleThemeAsync" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-panel-2 [&_svg]:text-muted"><Icon Name="@(Session.Dark ? "Sun" : "Moon")" Class="size-4" />@(Session.Dark ? "Light mode" : "Dark mode")</button>
+                        <div class="-mx-1 my-1 h-px bg-line"></div>
+                        <button type="button" @onclick="Session.LogoutAsync" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-panel-2 [&_svg]:text-muted"><Icon Name="LogOut" Class="size-4" />Sign out</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </aside>;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += OnLocation;
+        Hub.StateChanged += Refresh;
+        Hub.Alert += OnAlert;
+        Session.Changed += Refresh;
+        try { _collapsed = await JS.InvokeAsync<string?>("sd.getItem", "sd-sidebar") == "closed"; } catch (JSException) { }
+        await Hub.StartAsync();
+        await LoadAlertCount();
+        _ = PollAlerts();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _ref = DotNetObjectReference.Create(this);
+        try { await JS.InvokeVoidAsync("sd.shortcuts", _ref); } catch (JSException) { }
+    }
+
+    private async Task PollAlerts()
+    {
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        try
+        {
+            while (await _timer.WaitForNextTickAsync())
+                await InvokeAsync(async () => { await LoadAlertCount(); StateHasChanged(); });
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task LoadAlertCount()
+    {
+        try { _alertCount = (await Api.GetAsync<List<AlertRow>>("/api/alerts?status=open")).Count; }
+        catch (ApiException) { }
+    }
+
+    private void OnAlert(AlertMsg a) => _ = InvokeAsync(async () =>
+    {
+        await LoadAlertCount();
+        var kind = a.Severity == "critical" ? ToastKind.Error : a.Severity == "warning" ? ToastKind.Warning : ToastKind.Info;
+        Toast.Show(kind, a.Title, a.Hostname, "Open", () => Nav.NavigateTo($"/devices/{a.DeviceId}"));
+        StateHasChanged();
+    });
+
+    [JSInvokable]
+    public async Task Shortcut(string key)
+    {
+        if (key == "k") _palette = true;
+        else if (key == "b") await ToggleSidebar();
+        StateHasChanged();
+    }
+
+    private async Task ToggleSidebar()
+    {
+        bool desktop;
+        try { desktop = await JS.InvokeAsync<bool>("sd.isDesktop"); } catch (JSException) { desktop = true; }
+        if (desktop)
+        {
+            _collapsed = !_collapsed;
+            try { await JS.InvokeVoidAsync("sd.setItem", "sd-sidebar", _collapsed ? "closed" : "open"); } catch (JSException) { }
+        }
+        else _mobileNav = !_mobileNav;
+    }
+
+    private void OnLocation(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() => { _mobileNav = false; _userMenu = false; StateHasChanged(); });
+
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        Nav.LocationChanged -= OnLocation;
+        Hub.StateChanged -= Refresh;
+        Hub.Alert -= OnAlert;
+        Session.Changed -= Refresh;
+        _timer?.Dispose();
+        _ref?.Dispose();
+        try { await JS.InvokeVoidAsync("sd.shortcuts", (object?)null); } catch (JSException) { } catch (JSDisconnectedException) { }
+        await Hub.StopAsync();
+    }
+}

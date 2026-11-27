@@ -1,0 +1,174 @@
+@* Themed date (or date + time) picker: the calendar is drawn by the console, so it follows the light/dark theme
+   instead of the browser's own pop-up. Value: "yyyy-MM-dd", or "yyyy-MM-ddTHH:mm" when WithTime. *@
+@using System.Globalization
+<button @ref="_btn" type="button" disabled="@Disabled" aria-label="@AriaLabel" aria-haspopup="dialog" aria-expanded="@(_open ? "true" : "false")"
+        data-prevent-keys="Escape" @onclick="Toggle" @onkeydown="Key"
+        class="@Cls.Join("inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-line-strong bg-transparent pl-2.5 pr-2 text-left text-sm text-fg shadow-xs outline-none transition-[color,box-shadow] dark:bg-white/4.5",
+                         "hover:bg-panel-2 dark:hover:bg-white/8 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+                         Cls.If(_open, "border-ring ring-[3px] ring-ring/50"), Class)">
+    <span class="@Cls.Join("truncate tabular", Cls.If(Selected is null, "text-muted"))">@Display</span>
+    <Icon Name="Calendar" Class="size-4 shrink-0 text-muted" />
+</button>
+@if (_open && _pos is not null)
+{
+    <div class="sd-select-backdrop" @onmousedown="Close"></div>
+    <div role="dialog" aria-label="@(AriaLabel ?? "Choose a date")" style="@PopStyle" @onkeydown="Key"
+         class="fixed z-70 w-64 rounded-md border border-line bg-panel p-2 text-sm text-fg shadow-lg animate-rise">
+        <div class="mb-1 flex items-center justify-between px-1">
+            <span class="font-medium">@_month.ToString("MMMM yyyy", F.Culture)</span>
+            <span class="flex gap-0.5">
+                <button type="button" class="grid size-7 place-items-center rounded-md text-muted hover:bg-panel-2 hover:text-fg sd-dis" aria-label="Previous month"
+                        disabled="@(MinDate is { } mn && _month <= new DateTime(mn.Year, mn.Month, 1))" @onclick="() => _month = _month.AddMonths(-1)"><Icon Name="ChevronLeft" Class="size-4" /></button>
+                <button type="button" class="grid size-7 place-items-center rounded-md text-muted hover:bg-panel-2 hover:text-fg sd-dis" aria-label="Next month"
+                        disabled="@(MaxDate is { } mx && _month >= new DateTime(mx.Year, mx.Month, 1))" @onclick="() => _month = _month.AddMonths(1)"><Icon Name="ChevronRight" Class="size-4" /></button>
+            </span>
+        </div>
+        <div class="grid sd-cal-grid text-center text-[11px] font-medium text-muted">
+            @foreach (var d in WeekDays)
+            {
+                <span class="py-1">@d</span>
+            }
+        </div>
+        <div class="grid sd-cal-grid gap-0.5">
+            @foreach (var day in Days)
+            {
+                var inMonth = day.Month == _month.Month;
+                var ok = Allowed(day);
+                var sel = Selected?.Date == day;
+                var today = day == F.Now.Date;
+                <button type="button" disabled="@(!ok)" @onclick="() => Pick(day)"
+                        class="@Cls.Join("h-8 rounded-md text-[13px] tabular transition-colors sd-dis",
+                                         sel ? "bg-brand font-medium text-white" : "hover:bg-panel-2 dark:hover:bg-white/8",
+                                         Cls.If(!sel && !inMonth, "text-muted"),
+                                         Cls.If(!sel && today, "font-semibold text-brand-ink ring-1 ring-inset ring-brand/40"))">@day.Day</button>
+            }
+        </div>
+        @if (WithTime)
+        {
+            <div class="mt-2 flex items-center gap-2 border-t border-line px-1 sd-pt-2 text-xs text-muted">
+                <Icon Name="Clock" Class="size-3.5" />Time
+                <span class="ml-auto"><TimePicker Value="@TimeText" ValueChanged="SetTime" Class="sd-w-24" /></span>
+            </div>
+        }
+        <div class="mt-2 flex items-center justify-between border-t border-line px-1 sd-pt-2 text-xs">
+            @if (Clearable)
+            {
+                <button type="button" class="font-medium text-muted hover:text-fg" @onclick="Clear">Clear</button>
+            }
+            else
+            {
+                <span></span>
+            }
+            <button type="button" class="font-medium text-brand-ink hover:underline sd-dis" disabled="@(!Allowed(F.Now.Date))" @onclick="() => Pick(F.Now.Date)">Today</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    /// <summary>Also choose a time (value "yyyy-MM-ddTHH:mm").</summary>
+    [Parameter] public bool WithTime { get; set; }
+    /// <summary>Earliest / latest selectable day, "yyyy-MM-dd".</summary>
+    [Parameter] public string? Min { get; set; }
+    [Parameter] public string? Max { get; set; }
+    [Parameter] public bool Clearable { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private const string DateFmt = "yyyy-MM-dd";
+    private const string DateTimeFmt = "yyyy-MM-ddTHH:mm";
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    private ElementReference _btn;
+    private bool _open;
+    private Place? _pos;
+    private DateTime _month;
+
+    private sealed record Place(double Left, double? Top, double? Bottom, double Width);
+
+    private DateTime? Selected => Parse(Value);
+    private DateTime? MinDate => ParseDay(Min);
+    private DateTime? MaxDate => ParseDay(Max);
+    private string TimeText => (Selected ?? F.Now.Date.AddHours(17)).ToString("HH:mm", Inv);
+
+    private string Display => Selected is { } s
+        ? WithTime ? $"{s.ToString(F.Culture.DateTimeFormat.ShortDatePattern, F.Culture)} {s.ToString(F.Culture.DateTimeFormat.ShortTimePattern, F.Culture)}"
+                   : s.ToString(F.Culture.DateTimeFormat.ShortDatePattern, F.Culture)
+        : Placeholder ?? (WithTime ? "Choose date and time" : "Choose a date");
+
+    private string PopStyle => $"left:{Cls.Css(_pos!.Left)}px;" + (_pos.Top is { } t ? $"top:{Cls.Css(t)}px;" : "") + (_pos.Bottom is { } b ? $"bottom:{Cls.Css(b)}px;" : "");
+
+    private IEnumerable<string> WeekDays
+    {
+        get
+        {
+            var first = (int)F.Culture.DateTimeFormat.FirstDayOfWeek;
+            for (var i = 0; i < 7; i++) yield return F.Culture.DateTimeFormat.ShortestDayNames[(first + i) % 7];
+        }
+    }
+
+    /// <summary>Six weeks starting on the culture's first day of the week.</summary>
+    private IEnumerable<DateTime> Days
+    {
+        get
+        {
+            var first = (int)F.Culture.DateTimeFormat.FirstDayOfWeek;
+            var start = _month.AddDays(-(((int)_month.DayOfWeek - first + 7) % 7));
+            for (var i = 0; i < 42; i++) yield return start.AddDays(i);
+        }
+    }
+
+    private bool Allowed(DateTime day) => (MinDate is not { } mn || day >= mn) && (MaxDate is not { } mx || day <= mx);
+
+    private static DateTime? ParseDay(string? v) =>
+        DateTime.TryParseExact(v, DateFmt, Inv, DateTimeStyles.None, out var d) ? d : null;
+
+    private static DateTime? Parse(string? v) =>
+        DateTime.TryParseExact(v, [DateTimeFmt, "yyyy-MM-ddTHH:mm:ss", DateFmt], Inv, DateTimeStyles.None, out var d) ? d : null;
+
+    private async Task Show()
+    {
+        if (Disabled) return;
+        try { _pos = await JS.InvokeAsync<Place>("sd.place", _btn, 360, 256); } catch (JSException) { return; }
+        var s = Selected ?? F.Now.Date;
+        _month = new DateTime(s.Year, s.Month, 1);
+        _open = true;
+    }
+
+    private Task Toggle() => _open ? Close() : Show();
+
+    private Task Close() { _open = false; return Task.CompletedTask; }
+
+    private Task Key(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+
+    private async Task Pick(DateTime day)
+    {
+        if (!Allowed(day)) return;
+        if (WithTime)
+        {
+            var time = Selected?.TimeOfDay ?? TimeSpan.FromHours(17);
+            await Emit(day.Date + time);
+            _month = new DateTime(day.Year, day.Month, 1);
+            return;   // keep the calendar open so the time can be adjusted too
+        }
+        _open = false;
+        await Emit(day);
+    }
+
+    private async Task SetTime(string hhmm)
+    {
+        if (!TimeSpan.TryParseExact(hhmm, @"hh\:mm", Inv, out var t)) return;
+        await Emit((Selected?.Date ?? F.Now.Date) + t);
+    }
+
+    private Task Emit(DateTime v) => ValueChanged.InvokeAsync(v.ToString(WithTime ? DateTimeFmt : DateFmt, Inv));
+
+    private async Task Clear()
+    {
+        _open = false;
+        await ValueChanged.InvokeAsync("");
+    }
+}

@@ -1,0 +1,19 @@
+<div class="flex items-center justify-between gap-3 py-1.5">
+    <dt class="shrink-0 text-muted">@K</dt>
+    <dd class="min-w-0 truncate text-right text-fg">
+        @if (ChildContent is not null)
+        {
+            @ChildContent
+        }
+        else
+        {
+            @(string.IsNullOrEmpty(V) ? "—" : V)
+        }
+    </dd>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string K { get; set; } = "";
+    [Parameter] public string? V { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

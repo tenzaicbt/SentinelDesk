@@ -1,0 +1,18 @@
+@if (Online)
+{
+    <Badge Tone="good">
+        <IconContent><OnlineDot Online="true" /></IconContent>
+        <ChildContent>Online</ChildContent>
+    </Badge>
+}
+else
+{
+    <Badge>
+        <IconContent><OnlineDot Online="false" /></IconContent>
+        <ChildContent>Offline</ChildContent>
+    </Badge>
+}
+
+@code {
+    [Parameter] public bool Online { get; set; }
+}

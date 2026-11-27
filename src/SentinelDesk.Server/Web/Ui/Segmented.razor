@@ -1,0 +1,16 @@
+@typeparam TValue
+<div class="inline-flex h-7 items-center rounded-lg bg-panel-2 p-0.75">
+    @foreach (var o in Options)
+    {
+        <button type="button" @onclick="() => ValueChanged.InvokeAsync(o.Value)"
+                class="@Cls.Join("h-full rounded-md border border-transparent px-2 text-xs font-medium transition", EqualityComparer<TValue>.Default.Equals(Value, o.Value) ? "bg-panel text-fg shadow-sm dark:border-line-strong dark:bg-white/6" : "text-muted hover:text-fg")">
+            @o.Label
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<(TValue Value, string Label)> Options { get; set; } = [];
+    [Parameter] public TValue Value { get; set; } = default!;
+    [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
+}

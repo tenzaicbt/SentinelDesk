@@ -1,0 +1,21 @@
+@using System.Net.Http
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.JSInterop
+@using SentinelDesk.Shared
+@using SentinelDesk.Server.Services
+@using SentinelDesk.Server.Web
+@using SentinelDesk.Server.Web.Services
+@using SentinelDesk.Server.Web.Ui
+@using SentinelDesk.Server.Web.Layout
+@using SentinelDesk.Server.Web.Pages
+@inject ApiClient Api
+@inject Session Session
+@inject Fmt F
+@inject Toasts Toast
+@inject Dialogs Dialog
+@inject NavigationManager Nav
+@inject IJSRuntime JS

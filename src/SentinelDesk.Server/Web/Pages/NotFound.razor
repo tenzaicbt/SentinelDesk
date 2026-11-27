@@ -1,0 +1,6 @@
+@page "/not-found"
+@* Unknown console addresses go back to the overview. *@
+
+@code {
+    protected override void OnInitialized() => Nav.NavigateTo("/", replace: true);
+}

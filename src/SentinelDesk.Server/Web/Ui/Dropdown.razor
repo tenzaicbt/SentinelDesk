@@ -1,0 +1,120 @@
+@* Themed drop-down (the list is drawn by the console, so it follows the light/dark theme). *@
+<button @ref="_btn" type="button" id="@Id" disabled="@Disabled" aria-label="@AriaLabel" aria-haspopup="listbox" aria-expanded="@(_open ? "true" : "false")"
+        data-prevent-keys="ArrowDown ArrowUp Enter Space Home End Escape" @onclick="Toggle" @onkeydown="Key"
+        class="@Cls.Join("inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-line-strong bg-transparent pl-2.5 pr-2 text-left text-sm text-fg shadow-xs outline-none transition-[color,box-shadow] dark:bg-white/4.5",
+                         "hover:bg-panel-2 dark:hover:bg-white/8 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+                         Cls.If(_open, "border-ring ring-[3px] ring-ring/50"), Class)">
+    <span class="truncate">@Selected?.Label</span>
+    <Icon Name="ChevronDown" Class="@Cls.Join("size-4 shrink-0 text-muted transition-transform", Cls.If(_open, "rotate-180"))" />
+</button>
+@if (_open && _pos is not null)
+{
+    <div class="sd-select-backdrop" @onmousedown="Close"></div>
+    <div @ref="_list" role="listbox" style="@ListStyle"
+         class="fixed z-70 max-h-60 max-w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-line bg-panel p-1 text-sm text-fg shadow-lg animate-rise">
+        @for (var i = 0; i < _options.Count; i++)
+        {
+            var idx = i;
+            var o = _options[i];
+            <div role="option" aria-selected="@(o.Value == Selected?.Value ? "true" : "false")" aria-disabled="@(o.Disabled ? "true" : "false")" data-active="@(idx == _active ? "true" : "false")"
+                 @onmouseenter="() => { if (!o.Disabled) _active = idx; }" @onclick="() => Choose(o)"
+                 class="@Cls.Join("flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-8 relative", Cls.If(idx == _active && !o.Disabled, "bg-panel-2 dark:bg-white/8"), Cls.If(o.Disabled, "opacity-50"))">
+                <span class="truncate">@o.Label</span>
+                @if (o.Value == Selected?.Value)
+                {
+                    <Icon Name="Check" Class="absolute right-2 size-4 text-brand" />
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public IEnumerable<Opt> Options { get; set; } = [];
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? Id { get; set; }
+
+    private ElementReference _btn;
+    private ElementReference _list;
+    private bool _open;
+    private int _active;
+    private Place? _pos;
+    private List<Opt> _options = [];
+    private bool _scroll;
+
+    private sealed record Place(double Left, double? Top, double? Bottom, double Width);
+
+    protected override void OnParametersSet() => _options = Options.ToList();
+
+    private Opt? Selected => _options.FirstOrDefault(o => o.Value == (Value ?? "")) ?? _options.FirstOrDefault();
+
+    private string ListStyle => $"left:{Cls.Css(_pos!.Left)}px;min-width:{Cls.Css(_pos.Width)}px;" +
+                                (_pos.Top is { } t ? $"top:{Cls.Css(t)}px;" : "") + (_pos.Bottom is { } b ? $"bottom:{Cls.Css(b)}px;" : "");
+
+    private async Task Show()
+    {
+        if (Disabled) return;
+        try { _pos = await JS.InvokeAsync<Place>("sd.place", _btn); } catch (JSException) { return; }
+        _active = Math.Max(0, _options.FindIndex(o => o.Value == Selected?.Value));
+        _open = true;
+        _scroll = true;
+    }
+
+    private Task Toggle() => _open ? Close() : Show();
+
+    private Task Close() { _open = false; return Task.CompletedTask; }
+
+    private async Task Choose(Opt o)
+    {
+        if (o.Disabled) return;
+        _open = false;
+        try { await JS.InvokeVoidAsync("sd.focus", _btn); } catch (JSException) { }
+        if (o.Value != (Value ?? "")) await ValueChanged.InvokeAsync(o.Value);
+    }
+
+    private int Step(int from, int dir)
+    {
+        for (var i = from + dir; i >= 0 && i < _options.Count; i += dir) if (!_options[i].Disabled) return i;
+        return from;
+    }
+
+    private async Task Key(KeyboardEventArgs e)
+    {
+        if (!_open)
+        {
+            if (e.Key is "ArrowDown" or "ArrowUp" or "Enter" or " ") await Show();
+            return;
+        }
+        switch (e.Key)
+        {
+            case "Escape" or "Tab": _open = false; break;
+            case "ArrowDown": _active = Step(_active, 1); _scroll = true; break;
+            case "ArrowUp": _active = Step(_active, -1); _scroll = true; break;
+            case "Home": _active = Step(-1, 1); _scroll = true; break;
+            case "End": _active = Step(_options.Count, -1); _scroll = true; break;
+            case "Enter" or " ": if (_active < _options.Count) await Choose(_options[_active]); break;
+            default:
+                if (e.Key.Length == 1)
+                {
+                    var k = e.Key.ToLowerInvariant();
+                    var i = _options.FindIndex(_active + 1, o => !o.Disabled && o.Label.StartsWith(k, StringComparison.CurrentCultureIgnoreCase));
+                    if (i < 0) i = _options.FindIndex(o => !o.Disabled && o.Label.StartsWith(k, StringComparison.CurrentCultureIgnoreCase));
+                    if (i >= 0) { _active = i; _scroll = true; }
+                }
+                break;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_open && _scroll)
+        {
+            _scroll = false;
+            try { await JS.InvokeVoidAsync("sd.scrollActive", _list); } catch (JSException) { }
+        }
+    }
+}

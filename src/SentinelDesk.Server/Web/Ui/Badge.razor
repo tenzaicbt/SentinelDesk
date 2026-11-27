@@ -1,0 +1,17 @@
+<span class="@Cls.Join("inline-flex w-fit shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset whitespace-nowrap [&_svg]:size-3", Cls.Tone(Tone), Class)">
+    @if (Icon is not null)
+    {
+        <Icon Name="@Icon" Class="size-3" />
+    }
+    @IconContent
+    @ChildContent
+</span>
+
+@code {
+    /// <summary>neutral · brand · good · warning · serious · critical</summary>
+    [Parameter] public string Tone { get; set; } = "neutral";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public RenderFragment? IconContent { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

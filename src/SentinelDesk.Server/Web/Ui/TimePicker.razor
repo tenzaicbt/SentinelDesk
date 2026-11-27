@@ -1,0 +1,78 @@
+@* Themed time picker ("HH:mm", 24-hour): hour and minute columns drawn by the console instead of the browser's pop-up. *@
+<button @ref="_btn" type="button" disabled="@Disabled" aria-label="@AriaLabel" aria-haspopup="dialog" aria-expanded="@(_open ? "true" : "false")"
+        data-prevent-keys="Escape" @onclick="Toggle" @onkeydown="Key"
+        class="@Cls.Join("inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-line-strong bg-transparent pl-2.5 pr-2 text-left text-sm text-fg shadow-xs outline-none transition-[color,box-shadow] dark:bg-white/4.5",
+                         "hover:bg-panel-2 dark:hover:bg-white/8 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+                         Cls.If(_open, "border-ring ring-[3px] ring-ring/50"), Class)">
+    <span class="truncate tabular">@(string.IsNullOrEmpty(Value) ? "--:--" : Value)</span>
+    <Icon Name="Clock" Class="size-4 shrink-0 text-muted" />
+</button>
+@if (_open && _pos is not null)
+{
+    <div class="sd-select-backdrop" style="z-index:71" @onmousedown="Close"></div>
+    <div @ref="_list" role="dialog" aria-label="Choose a time" style="@(PopStyle)z-index:72;" @onkeydown="Key"
+         class="fixed flex gap-1 rounded-md border border-line bg-panel p-1 text-sm text-fg shadow-lg animate-rise">
+        <div class="sd-time-col" data-col="h">
+            @for (var h = 0; h < 24; h++)
+            {
+                var hh = h;
+                <button type="button" data-active="@(hh == Hour ? "true" : "false")" @onclick="() => Set(hh, Minute)"
+                        class="@Cls.Join("block w-full rounded-sm py-1 text-center tabular", hh == Hour ? "bg-brand font-medium text-white" : "hover:bg-panel-2 dark:hover:bg-white/8")">@hh.ToString("00")</button>
+            }
+        </div>
+        <div class="sd-time-col" data-col="m">
+            @for (var m = 0; m < 60; m += 5)
+            {
+                var mm = m;
+                <button type="button" data-active="@(mm == Minute ? "true" : "false")" @onclick="() => Set(Hour, mm, close: true)"
+                        class="@Cls.Join("block w-full rounded-sm py-1 text-center tabular", mm == Minute ? "bg-brand font-medium text-white" : "hover:bg-panel-2 dark:hover:bg-white/8")">@mm.ToString("00")</button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private ElementReference _btn, _list;
+    private bool _open, _scroll;
+    private Place? _pos;
+
+    private sealed record Place(double Left, double? Top, double? Bottom, double Width);
+
+    private TimeSpan Parsed => TimeSpan.TryParseExact(Value, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : TimeSpan.Zero;
+    private int Hour => Parsed.Hours;
+    /// <summary>The selected minute, rounded down to the 5-minute list.</summary>
+    private int Minute => Parsed.Minutes / 5 * 5;
+
+    private string PopStyle => $"left:{Cls.Css(_pos!.Left)}px;" + (_pos.Top is { } t ? $"top:{Cls.Css(t)}px;" : "") + (_pos.Bottom is { } b ? $"bottom:{Cls.Css(b)}px;" : "");
+
+    private async Task Show()
+    {
+        if (Disabled) return;
+        try { _pos = await JS.InvokeAsync<Place>("sd.place", _btn, 240, 128); } catch (JSException) { return; }
+        _open = true;
+        _scroll = true;
+    }
+
+    private Task Toggle() => _open ? Close() : Show();
+    private Task Close() { _open = false; return Task.CompletedTask; }
+    private Task Key(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+
+    private async Task Set(int h, int m, bool close = false)
+    {
+        if (close) _open = false;
+        await ValueChanged.InvokeAsync($"{h:00}:{m:00}");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_open || !_scroll) return;
+        _scroll = false;
+        try { await JS.InvokeVoidAsync("sd.scrollActive", _list); } catch (JSException) { }
+    }
+}

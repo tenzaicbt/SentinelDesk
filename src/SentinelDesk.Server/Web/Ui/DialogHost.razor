@@ -1,0 +1,101 @@
+@* Renders the queued confirm / prompt dialogs (Dialogs service). *@
+@implements IDisposable
+@if (Dialog.Current is { } req)
+{
+    @if (req.Confirm is { } c)
+    {
+        <Modal Open="true" OnClose="() => Dialog.Close(null)" Width="max-w-md" @key="req">
+            <TitleContent>
+                <span class="flex items-center gap-2.5">
+                    <span class="@Cls.Join("grid size-8 shrink-0 place-items-center rounded-full", c.Danger ? "bg-critical/10 text-critical" : "bg-brand-soft text-brand-ink")">
+                        <Icon Name="@(c.Danger ? "AlertTriangle" : "HelpCircle")" Class="size-4" />
+                    </span>
+                    @c.Title
+                </span>
+            </TitleContent>
+            <ChildContent>
+                <div class="space-y-3 text-sm">
+                    @if (c.Message is not null)
+                    {
+                        <div class="text-fg-2">@c.Message</div>
+                    }
+                    @if (c.Note is not null)
+                    {
+                        <Callout Tone="@c.NoteTone">@c.Note</Callout>
+                    }
+                </div>
+            </ChildContent>
+            <Footer>
+                <Btn OnClick="() => Dialog.Close(null)">@c.CancelLabel</Btn>
+                <Btn Variant="@(c.Danger ? "danger" : "primary")" Icon="@(c.Danger ? "Trash2" : null)" OnClick="() => Dialog.Close(string.Empty)" data-autofocus="">
+                    @(c.ConfirmLabel ?? (c.Danger ? "Delete" : "Confirm"))
+                </Btn>
+            </Footer>
+        </Modal>
+    }
+    else if (req.Prompt is { } p)
+    {
+        <Modal Open="true" OnClose="() => Dialog.Close(null)" Width="max-w-md" Title="@p.Title" @key="req">
+            <ChildContent>
+                <form class="space-y-3" @onsubmit="Submit" @onsubmit:preventDefault>
+                    @if (p.Message is not null)
+                    {
+                        <p class="text-sm text-fg-2">@p.Message</p>
+                    }
+                    <Field Label="@p.Label">
+                        <HintContent>
+                            @if (_error is not null)
+                            {
+                                <span class="text-critical">@_error</span>
+                            }
+                        </HintContent>
+                        <ChildContent>
+                            <input class="@Cls.Input" data-autofocus="select" value="@_value" placeholder="@p.Placeholder" inputmode="@p.InputMode"
+                                   autocomplete="@p.AutoComplete" maxlength="@p.MaxLength" @oninput="e => { _value = e.Value?.ToString() ?? string.Empty; _error = null; }" />
+                        </ChildContent>
+                    </Field>
+                </form>
+            </ChildContent>
+            <Footer>
+                <Btn OnClick="() => Dialog.Close(null)">@p.CancelLabel</Btn>
+                <Btn Variant="primary" OnClick="Submit">@p.ConfirmLabel</Btn>
+            </Footer>
+        </Modal>
+    }
+}
+
+@code {
+    private Dialogs.Request? _shown;
+    private string _value = "";
+    private string? _error;
+
+    protected override void OnInitialized() => Dialog.Changed += Refresh;
+
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    protected override void OnParametersSet() => Sync();
+
+    protected override bool ShouldRender() { Sync(); return true; }
+
+    private void Sync()
+    {
+        var cur = Dialog.Current;
+        if (!ReferenceEquals(cur, _shown))
+        {
+            _shown = cur;
+            _value = cur?.Prompt?.DefaultValue ?? "";
+            _error = null;
+        }
+    }
+
+    private void Submit()
+    {
+        if (Dialog.Current?.Prompt is not { } p) return;
+        var v = _value.Trim();
+        if (v.Length == 0) { _error = $"{p.Label} is required"; return; }
+        if (p.Validate?.Invoke(v) is { } err) { _error = err; return; }
+        Dialog.Close(v);
+    }
+
+    public void Dispose() => Dialog.Changed -= Refresh;
+}

@@ -1,0 +1,41 @@
+@* Interactive root: sign-in gate, then the routed pages inside the console shell. *@
+@implements IDisposable
+<CascadingValue Name="Dark" Value="Session.Dark">
+    @if (!Session.Ready)
+    {
+        <div class="grid h-full place-items-center"><div class="grid h-64 place-items-center text-muted"><Icon Name="Loader2" Class="size-5 animate-spin" /></div></div>
+    }
+    else if (Session.Me is null)
+    {
+        <Login />
+    }
+    else if (Session.Me.MustChangePassword)
+    {
+        <ChangePasswordGate />
+    }
+    else
+    {
+        <Router AppAssembly="typeof(Routes).Assembly" NotFoundPage="typeof(NotFound)">
+            <Found Context="routeData">
+                <RouteView RouteData="routeData" DefaultLayout="typeof(Shell)" />
+            </Found>
+        </Router>
+    }
+    <Toaster />
+    <DialogHost />
+</CascadingValue>
+
+@code {
+    [Parameter] public string? ClientIp { get; set; }
+
+    protected override void OnInitialized() => Session.Changed += Refresh;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await Session.InitAsync(ClientIp);
+    }
+
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= Refresh;
+}

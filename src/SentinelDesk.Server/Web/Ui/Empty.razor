@@ -1,0 +1,17 @@
+<div class="flex flex-col items-center justify-center gap-1.5 py-6 text-center">
+    @if (Icon is not null)
+    {
+        <div class="grid size-8 place-items-center rounded-md border border-line bg-panel-2 text-fg [&_svg]:size-4"><Icon Name="@Icon" Class="size-4" /></div>
+    }
+    <p class="text-sm font-medium">@Title</p>
+    @if (ChildContent is not null)
+    {
+        <div class="max-w-sm text-xs text-muted">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Icon { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

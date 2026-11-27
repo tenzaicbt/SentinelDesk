@@ -1,0 +1,12 @@
+<div class="flex items-center gap-3">
+    <img src="/brand/icon.png" alt="" class="@Cls.Join("shrink-0 object-contain", Large ? "size-12" : "size-9")" />
+    <div class="leading-tight">
+        <Wordmark Inverse="Inverse" Class="@(Large ? "text-2xl" : "text-lg")" />
+        <div class="@Cls.Join("text-[10px] font-medium uppercase tracking-[0.2em]", Inverse ? "text-white/60" : "text-muted")">Endpoint metrics</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Inverse { get; set; }
+    [Parameter] public bool Large { get; set; }
+}

@@ -1,0 +1,16 @@
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-2">
+    @foreach (var (label, color) in Items)
+    {
+        <span class="inline-flex items-center gap-1.5">
+            <span class="inline-block size-2.5 rounded-[3px]" style="background:@color"></span>
+            @label
+        </span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<(string Label, string Color)> Items { get; set; } = [];
+
+    public static readonly (string, string)[] DownUp = [("Download", Series.Down), ("Upload", Series.Up)];
+    public static readonly (string, string)[] ActiveIdle = [("Active", Series.Active), ("Idle", Series.Idle)];
+}

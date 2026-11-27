@@ -1,0 +1,26 @@
+<Card Class="relative overflow-hidden">
+    <div class="flex items-start justify-between gap-2">
+        <p class="text-xs text-muted">@Label</p>
+        @if (Icon is not null)
+        {
+            <span class="text-muted [&_svg]:size-3.5"><Icon Name="@Icon" Class="size-3.5" /></span>
+        }
+    </div>
+    <p class="mt-1 text-xl font-semibold tracking-tight tabular xl:text-2xl">@ChildContent</p>
+    <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+        @if (Trend is { } t && double.IsFinite(t))
+        {
+            <span class="@Cls.Join("font-medium tabular", (t <= 0) == GoodWhenDown || t == 0 ? "text-good-ink" : "text-fg-2")">@(t > 0 ? "▲" : t < 0 ? "▼" : "•") @Math.Abs(t).ToString("0")%</span>
+        }
+        @Sub
+    </div>
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Sub { get; set; }
+    [Parameter] public double? Trend { get; set; }
+    [Parameter] public bool GoodWhenDown { get; set; }
+}

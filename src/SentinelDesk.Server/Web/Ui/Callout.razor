@@ -1,0 +1,35 @@
+<div class="@Cls.Join("flex gap-2.5 rounded-md border px-3 py-2 text-[13px]", Style, Class)">
+    @if (Icon is not null)
+    {
+        <Icon Name="@Icon" Class="size-4" />
+    }
+    else
+    {
+        <Icon Name="@DefaultIcon.Name" Class="@DefaultIcon.Class" />
+    }
+    <div class="min-w-0 flex-1">@ChildContent</div>
+</div>
+
+@code {
+    /// <summary>brand · warning · critical · good</summary>
+    [Parameter] public string Tone { get; set; } = "brand";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string Style => Tone switch
+    {
+        "warning" => "border-warning/40 bg-warning/10",
+        "critical" => "border-critical/40 bg-panel text-critical [&_div]:text-fg-2",
+        "good" => "border-good/30 bg-good/8",
+        _ => "border-brand/25 bg-brand-soft",
+    };
+
+    private (string Name, string Class) DefaultIcon => Tone switch
+    {
+        "warning" => ("AlertTriangle", "size-4 text-amber-600 dark:text-warning"),
+        "critical" => ("OctagonAlert", "size-4 text-critical"),
+        "good" => ("CheckCircle2", "size-4 text-good-ink"),
+        _ => ("Info", "size-4 shrink-0 translate-y-0.5 text-brand-ink"),
+    };
+}

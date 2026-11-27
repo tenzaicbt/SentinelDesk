@@ -1,0 +1,13 @@
+@* Status is never color-alone: icon + label. *@
+<Badge Tone="@Info.Tone" Icon="@Info.Icon">@Info.Label</Badge>
+
+@code {
+    [Parameter, EditorRequired] public string Severity { get; set; } = "info";
+
+    private (string Tone, string Icon, string Label) Info => Severity switch
+    {
+        "critical" => ("critical", "OctagonAlert", "Critical"),
+        "warning" => ("warning", "AlertTriangle", "Warning"),
+        _ => ("brand", "Info", "Info"),
+    };
+}

@@ -12,6 +12,8 @@ using SentinelDesk.Server.Hubs;
 using SentinelDesk.Server.Security;
 using SentinelDesk.Server.Services;
 using SentinelDesk.Shared;
+using SentinelDesk.Server.Web.Services;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(o => o.ServiceName = "SentinelDeskServer");
@@ -74,6 +76,20 @@ builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 256 * 1024)
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddRequestTimeouts();
+
+// ── Web console: Blazor Server components (SentinelDesk.Server.Web) that call this server's own API
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+var dpKeys = builder.Services.AddDataProtection().SetApplicationName("SentinelDesk.Console")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys", "console")));
+if (OperatingSystem.IsWindows()) dpKeys.ProtectKeysWithDpapi(protectToLocalMachine: true);
+builder.Services.AddSingleton<LoopbackAddress>();
+builder.Services.AddHttpClient("console-api").ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<LoopbackAddress>().CreateHandler());
+builder.Services.AddScoped<ApiClient>();
+builder.Services.AddScoped<Fmt>();
+builder.Services.AddScoped<Session>();
+builder.Services.AddScoped<LiveHub>();
+builder.Services.AddScoped<Toasts>();
+builder.Services.AddScoped<Dialogs>();
 
 // ── Services
 builder.Services.AddSingleton<PresenceStore>();
@@ -166,12 +182,12 @@ app.Use(async (ctx, next) =>
 });
 if (!app.Environment.IsDevelopment()) app.UseHsts();
 
-app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseAntiforgery();
 
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }));
 app.MapAgentApi();
@@ -184,24 +200,18 @@ app.MapReportApi();
 app.MapHub<ConsoleHub>("/hubs/console");
 app.MapHub<AgentHub>("/hubs/agent");
 
-app.MapFallback(async ctx =>
+// web console (Blazor Server)
+app.MapStaticAssets();
+app.MapRazorComponents<SentinelDesk.Server.Web.App>().AddInteractiveServerRenderMode();
+
+app.MapFallback(ctx =>
 {
-    if (ctx.Request.Path.StartsWithSegments("/api") || ctx.Request.Path.StartsWithSegments("/agent") || ctx.Request.Path.StartsWithSegments("/hubs"))
-    {
+    if (ctx.Request.Path.StartsWithSegments("/api") || ctx.Request.Path.StartsWithSegments("/agent") || ctx.Request.Path.StartsWithSegments("/hubs")
+        || ctx.Request.Path.StartsWithSegments("/_framework") || Path.HasExtension(ctx.Request.Path.Value))
         ctx.Response.StatusCode = 404;
-        return;
-    }
-    var index = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"), "index.html");
-    if (File.Exists(index))
-    {
-        ctx.Response.ContentType = "text/html; charset=utf-8";
-        await ctx.Response.SendFileAsync(index);
-    }
     else
-    {
-        ctx.Response.ContentType = "text/plain";
-        await ctx.Response.WriteAsync("SentinelDesk API is running. Build the web console (web/console → npm run build) to serve the UI.");
-    }
+        ctx.Response.Redirect("/");   // unknown console address: back to the overview
+    return Task.CompletedTask;
 });
 
 app.Run();

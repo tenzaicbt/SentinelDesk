@@ -1,0 +1,41 @@
+<button type="@Type" disabled="@(Disabled || Loading)" class="@Classes" aria-label="@AriaLabel" title="@Title" @onclick="Click" @attributes="Attrs">
+    @if (Loading)
+    {
+        <Icon Name="Loader2" Class="size-4 animate-spin" />
+    }
+    else if (Icon is not null)
+    {
+        <Icon Name="@Icon" Class="@(IconClass ?? (Size == "sm" ? "size-3.5" : "size-4"))" />
+    }
+    @ChildContent
+</button>
+
+@code {
+    /// <summary>primary · secondary · ghost · danger</summary>
+    [Parameter] public string Variant { get; set; } = "secondary";
+    /// <summary>sm · md</summary>
+    [Parameter] public string Size { get; set; } = "md";
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? IconClass { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string Type { get; set; } = "button";
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? Attrs { get; set; }
+
+    private Task Click(MouseEventArgs e) => OnClick.HasDelegate ? OnClick.InvokeAsync(e) : Task.CompletedTask;
+
+    private string Classes => Cls.Join(
+        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all select-none whitespace-nowrap [&_svg]:shrink-0",
+        "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 disabled:pointer-events-none",
+        Size == "sm" ? "h-7 px-2.5 text-xs gap-1.5" : "h-8 px-3 text-sm",
+        Cls.If(Variant == "primary", "bg-brand text-white shadow-xs hover:bg-brand/90"),
+        Cls.If(Variant == "secondary", "border border-line-strong bg-panel text-fg shadow-xs hover:bg-panel-2 dark:bg-white/4.5 dark:hover:bg-white/10"),
+        Cls.If(Variant == "ghost", "text-fg hover:bg-panel-2"),
+        Cls.If(Variant == "danger", "bg-critical text-white shadow-xs hover:bg-critical/90"),
+        Class);
+}

@@ -1,0 +1,114 @@
+@* Ctrl K: jump to a page or search devices by hostname, user, serial or IP. *@
+@implements IDisposable
+@if (Open)
+{
+    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh]" @onmousedown="Close">
+        <div class="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-lg animate-rise" @onmousedown:stopPropagation>
+            <div class="flex items-center gap-2 border-b border-line px-3">
+                <Icon Name="Search" Class="size-4 shrink-0 opacity-50" />
+                <input data-autofocus="" value="@_q" @oninput="Input" @onkeydown="Key" data-prevent-keys="ArrowDown ArrowUp"
+                       placeholder="Hostname, user, serial, IP or page…" class="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-muted" />
+                <kbd class="rounded border border-line bg-panel-2 px-1.5 font-mono text-[10px] font-medium text-muted">ESC</kbd>
+            </div>
+            <ul class="max-h-[50vh] overflow-y-auto p-1">
+                @if (Items.Count == 0)
+                {
+                    <li class="py-6 text-center text-sm text-muted">No results found.</li>
+                }
+                @for (var i = 0; i < Items.Count; i++)
+                {
+                    var idx = i;
+                    var it = Items[i];
+                    <li>
+                        <button type="button" @onmouseenter="() => _idx = idx" @onclick="() => Go(it.To)"
+                                class="@Cls.Join("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm [&_svg]:text-muted", Cls.If(idx == _idx, "bg-panel-2"))">
+                            <span><Icon Name="@it.Icon" Class="size-4" /></span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate">@it.Label</span>
+                                @if (!string.IsNullOrEmpty(it.Sub))
+                                {
+                                    <span class="block truncate text-xs text-muted">@it.Sub</span>
+                                }
+                            </span>
+                            @if (idx == _idx)
+                            {
+                                <Icon Name="CornerDownLeft" Class="size-3.5" />
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private sealed record Item(string Key, string Label, string Sub, string To, string Icon);
+
+    private static readonly (string Label, string To, string Icon)[] Pages =
+    [
+        ("Overview", "/", "LayoutDashboard"), ("Live view", "/live", "Radio"), ("Devices", "/devices", "Monitor"), ("Alerts", "/alerts", "Bell"),
+        ("Reports", "/reports", "FileBarChart2"), ("Policies", "/policies", "SlidersHorizontal"), ("Organization", "/organization", "Building2"),
+        ("Agent management", "/agents", "KeyRound"),
+    ];
+
+    private string _q = "";
+    private int _idx;
+    private List<SearchHit> _hits = [];
+    private bool _wasOpen;
+    private CancellationTokenSource? _debounce;
+
+    private List<Item> Items =>
+    [
+        .. _hits.Select(h => new Item(h.Id.ToString(), h.Hostname, string.Join(" · ", new[] { h.LoggedInUser, h.LastIp }.Where(x => !string.IsNullOrEmpty(x))), $"/devices/{h.Id}", "Monitor")),
+        .. Pages.Where(p => p.Label.Contains(_q, StringComparison.OrdinalIgnoreCase)).Select(p => new Item(p.To, p.Label, "Page", p.To, p.Icon)),
+    ];
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen) { _q = ""; _hits = []; _idx = 0; }
+        _wasOpen = Open;
+    }
+
+    private async Task Input(ChangeEventArgs e)
+    {
+        _q = e.Value?.ToString() ?? "";
+        _idx = 0;
+        _debounce?.Cancel();
+        if (_q.Trim().Length < 2) { _hits = []; return; }
+        var cts = _debounce = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(150, cts.Token);
+            var hits = await Api.GetAsync<List<SearchHit>>($"/api/search?q={Uri.EscapeDataString(_q)}");
+            if (!cts.IsCancellationRequested) _hits = hits;
+        }
+        catch (TaskCanceledException) { }
+        catch (ApiException) { _hits = []; }
+    }
+
+    private async Task Key(KeyboardEventArgs e)
+    {
+        var items = Items;
+        switch (e.Key)
+        {
+            case "Escape": await Close(); break;
+            case "ArrowDown": _idx = Math.Min(items.Count - 1, _idx + 1); break;
+            case "ArrowUp": _idx = Math.Max(0, _idx - 1); break;
+            case "Enter": if (_idx < items.Count) await Go(items[_idx].To); break;
+        }
+    }
+
+    private async Task Go(string to)
+    {
+        Nav.NavigateTo(to);
+        await Close();
+    }
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    public void Dispose() => _debounce?.Cancel();
+}

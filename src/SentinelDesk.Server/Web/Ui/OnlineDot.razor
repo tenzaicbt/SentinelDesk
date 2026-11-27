@@ -1,0 +1,7 @@
+<span class="@Cls.Join("inline-block size-2 shrink-0 rounded-full", Online ? "bg-good pulse-dot" : "bg-muted/50", Class)"
+      aria-label="@(Online ? "Online" : "Offline")" title="@(Online ? "Online" : "Offline")"></span>
+
+@code {
+    [Parameter] public bool Online { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

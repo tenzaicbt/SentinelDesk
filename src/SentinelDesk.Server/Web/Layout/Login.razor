@@ -1,0 +1,94 @@
+<div class="grid min-h-full lg:grid-cols-[1.1fr_1fr]">
+    <div class="relative hidden overflow-hidden bg-[#0a0a0a] p-12 text-white lg:flex lg:flex-col">
+        <div class="pointer-events-none absolute -left-32 -top-32 size-130 rounded-full bg-[#ff6a00]/22 blur-3xl"></div>
+        <div class="pointer-events-none absolute -bottom-40 right-0 size-120 rounded-full bg-[#ff6a00]/10 blur-3xl"></div>
+        <img src="/brand/icon.png" alt="" class="pointer-events-none absolute -right-24 top-1/2 size-110 -translate-y-1/2 opacity-[0.08]" />
+        <div class="relative"><Brand Inverse="true" Large="true" /></div>
+        <div class="relative mt-auto max-w-lg">
+            <h1 class="text-4xl font-semibold leading-tight tracking-tight">
+                Every company device,<br /><span class="text-[#ff6a00]">one secure view.</span>
+            </h1>
+            <p class="mt-4 text-white/70">
+                Island-wide visibility of health, inventory, applications and data usage — with tamper-protected agents and end-to-end encryption.
+            </p>
+            <ul class="mt-8 space-y-3 text-sm text-white/80">
+                @foreach (var (icon, text) in Points)
+                {
+                    <li class="flex items-center gap-3"><span class="grid size-7 place-items-center rounded-lg bg-[#ff6a00]/15 text-[#ff8a3d]"><Icon Name="@icon" Class="size-4" /></span>@text</li>
+                }
+            </ul>
+        </div>
+    </div>
+
+    <div class="flex items-center justify-center p-6">
+        <form @onsubmit="Submit" @onsubmit:preventDefault class="w-full max-w-sm animate-rise">
+            <div class="mb-8 lg:hidden"><Brand /></div>
+            <h2 class="text-2xl font-semibold tracking-tight">@(_mfaToken is not null ? "Two-step verification" : "Sign in to the console")</h2>
+            <p class="mt-1.5 text-sm text-muted">
+                @(_mfaToken is not null ? "Enter the 6-digit code from your authenticator app." : "Authorised personnel only. All access is audited.")
+            </p>
+            <div class="mt-7 space-y-4">
+                @if (_error is not null)
+                {
+                    <Callout Tone="critical">@_error</Callout>
+                }
+                @if (_mfaToken is null)
+                {
+                    <Field Label="Username"><input class="@Cls.Input" data-autofocus="" autocomplete="username" @bind="_username" @bind:event="oninput" required /></Field>
+                    <Field Label="Password"><input class="@Cls.Input" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" required /></Field>
+                }
+                else
+                {
+                    <Field Label="Verification code">
+                        <input class="@Cls.InputCls("h-12 text-center font-mono text-xl tracking-[0.5em]")" data-autofocus="" inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+                               placeholder="000000" @bind="_code" @bind:event="oninput" @key="_mfaToken" />
+                    </Field>
+                }
+                <Btn Type="submit" Variant="primary" Class="h-10 w-full" Loading="_busy" Icon="KeyRound">@(_mfaToken is not null ? "Verify" : "Sign in")</Btn>
+                @if (_mfaToken is not null)
+                {
+                    <button type="button" class="w-full text-center text-xs text-muted hover:text-fg" @onclick="() => { _mfaToken = null; _code = string.Empty; }">Back</button>
+                }
+            </div>
+            <p class="mt-10 text-center text-[11px] text-muted">Protected system · Unauthorised access is prohibited</p>
+            <Credit Class="mt-1 text-center" />
+        </form>
+    </div>
+</div>
+
+@code {
+    private static readonly (string, string)[] Points =
+    [
+        ("Radio", "Real-time presence and live bandwidth for every branch"),
+        ("ShieldCheck", "Mutual TLS, AES-256-GCM payloads, signed policies & commands"),
+        ("Lock", "Role-based access, MFA and an immutable audit trail"),
+        ("Sparkles", "Privacy controls built in — PDPA No. 9 of 2022 aligned"),
+    ];
+
+    private string _username = "", _password = "", _code = "";
+    private string? _mfaToken, _error;
+    private bool _busy;
+
+    private async Task Submit()
+    {
+        if (_busy) return;
+        _error = null;
+        _busy = true;
+        try
+        {
+            if (_mfaToken is not null)
+            {
+                var r = await Api.PostAsync<LoginResult>("/api/auth/mfa", new { code = _code }, _mfaToken);
+                await Session.LoginAsync(r.Token);
+            }
+            else
+            {
+                var r = await Api.PostAsync<LoginResult>("/api/auth/login", new { username = _username, password = _password });
+                if (r.MfaRequired) _mfaToken = r.Token;
+                else await Session.LoginAsync(r.Token);
+            }
+        }
+        catch (ApiException e) { _error = e.Status == 0 ? "Unable to reach the server" : e.Message; }
+        finally { _busy = false; }
+    }
+}

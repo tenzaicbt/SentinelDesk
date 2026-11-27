@@ -1,0 +1,24 @@
+<div role="tablist" class="inline-flex h-9 max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-panel-2 p-0.75 text-muted">
+    @foreach (var t in Items)
+    {
+        <button type="button" role="tab" aria-selected="@(Value == t.Id ? "true" : "false")" @onclick="() => ValueChanged.InvokeAsync(t.Id)"
+                class="@Cls.Join("inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-2.5 text-sm font-medium transition-[color,box-shadow] [&_svg]:size-4",
+                                 Value == t.Id ? "bg-panel text-fg shadow-sm dark:border-line-strong dark:bg-white/6" : "text-muted hover:text-fg")">
+            @if (t.Icon is not null)
+            {
+                <Icon Name="@t.Icon" Class="size-3.5" />
+            }
+            @t.Label
+            @if (t.Count is not null)
+            {
+                <span class="rounded bg-panel-2 px-1 text-[10px] tabular text-muted ring-1 ring-line">@t.Count</span>
+            }
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<TabItem> Items { get; set; } = [];
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+}

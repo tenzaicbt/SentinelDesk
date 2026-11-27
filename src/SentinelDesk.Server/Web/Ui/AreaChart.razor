@@ -1,0 +1,166 @@
+@* The one area-chart look used everywhere: monotone curves, vertical gradient fills, horizontal grid only, no y-axis
+   (values live in the hover tooltip), 2px strokes and a surface-ringed active dot. Stacked = bands on top of each other. *@
+@using static SentinelDesk.Server.Web.Ui.ChartMath
+<div class="sd-chart" style="height:@(Height)px" @onmouseleave="() => _hover = null">
+    <svg viewBox="0 0 @W @PlotH" preserveAspectRatio="none" style="height:@(PlotH)px" aria-hidden="true">
+        <defs>
+            @foreach (var s in Series)
+            {
+                <linearGradient id="@($"{_uid}-{s.Key}")" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="@s.Color" stop-opacity="@(Stacked ? "0.75" : "0.45")" />
+                    <stop offset="95%" stop-color="@s.Color" stop-opacity="@(Stacked ? "0.08" : "0.02")" />
+                </linearGradient>
+            }
+        </defs>
+        @for (var g = 0; g <= 4; g++)
+        {
+            var y = Top + (PlotH - Top) * g / 4.0;
+            <line x1="0" x2="@W" y1="@Cls.Css(y)" y2="@Cls.Css(y)" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke" />
+        }
+        @if (_geo is not null)
+        {
+            @for (var i = 0; i < Series.Count; i++)
+            {
+                var s = Series[i];
+                <path d="@_geo.Fills[i]" fill="url(#@($"{_uid}-{s.Key}"))" stroke="none" />
+                <path d="@_geo.Lines[i]" fill="none" stroke="@s.Color" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            }
+            @if (_hover is { } h)
+            {
+                <line x1="@Cls.Css(_geo.X[h])" x2="@Cls.Css(_geo.X[h])" y1="@Top" y2="@PlotH" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" />
+            }
+        }
+    </svg>
+    @if (_geo is not null)
+    {
+        @if (Few)
+        {
+            @for (var i = 0; i < Series.Count; i++)
+            {
+                for (var j = 0; j < Rows.Count; j++)
+                {
+                    <span class="sd-chart-dot small" style="left:@(Cls.Css(_geo.X[j] / W * 100))%;top:@(Cls.Css(_geo.Y[i][j]))px;background:@Series[i].Color"></span>
+                }
+            }
+        }
+        @if (_hover is { } hv)
+        {
+            @for (var i = 0; i < Series.Count; i++)
+            {
+                <span class="sd-chart-dot" style="left:@(Cls.Css(_geo.X[hv] / W * 100))%;top:@(Cls.Css(_geo.Y[i][hv]))px;background:@Series[i].Color"></span>
+            }
+            var leftPct = _geo.X[hv] / W * 100;
+            <div class="sd-chart-tip" style="@(leftPct > 60 ? $"right:{Cls.Css(100 - leftPct + 1.5)}%" : $"left:{Cls.Css(leftPct + 1.5)}%")">
+                <div class="grid min-w-40 gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-xs shadow-xl">
+                    <div class="font-medium text-fg">@Label(hv)</div>
+                    <div class="grid gap-1">
+                        @for (var i = 0; i < Series.Count; i++)
+                        {
+                            <div class="flex items-center gap-2">
+                                <span class="h-2.5 w-1 shrink-0 rounded-[2px]" style="background:@Series[i].Color"></span>
+                                <span class="flex-1 text-muted">@Series[i].Name</span>
+                                <span class="font-mono font-medium tabular text-fg">@TipFormat(Value(hv, i))</span>
+                            </div>
+                        }
+                        @if (Total && Series.Count > 1)
+                        {
+                            <div class="mt-0.5 flex items-center gap-2 border-t border-line pt-1">
+                                <span class="w-1"></span>
+                                <span class="flex-1 font-medium text-fg">Total</span>
+                                <span class="font-mono font-medium tabular text-fg">@TipFormat(Enumerable.Range(0, Series.Count).Sum(i => Value(hv, i)))</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="sd-chart-hit">
+            @for (var j = 0; j < Rows.Count; j++)
+            {
+                var idx = j;
+                <div @onmouseenter="() => _hover = idx"></div>
+            }
+        </div>
+        <div class="sd-chart-x">
+            @foreach (var j in Ticks)
+            {
+                <span class="@(j == 0 && Rows.Count > 1 ? "first" : j == Rows.Count - 1 && Rows.Count > 1 ? "last" : null)" style="left:@(Cls.Css(_geo.X[j] / W * 100))%">@Label(j)</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>One row per x position; Values[k] is series k.</summary>
+    public sealed record Row(string X, double[] Values);
+
+    [Parameter, EditorRequired] public IReadOnlyList<Row> Rows { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<ChartSeries> Series { get; set; } = [];
+    [Parameter] public int Height { get; set; } = 220;
+    [Parameter] public bool Stacked { get; set; }
+    [Parameter] public double? YMax { get; set; }
+    [Parameter] public Func<string, string>? XFormat { get; set; }
+    [Parameter] public Func<double, string> TipFormat { get; set; } = v => v.ToString("0.##");
+    [Parameter] public bool Total { get; set; }
+
+    private const double W = 1000;
+    private const double Top = 10;
+    private readonly string _uid = "c" + Guid.NewGuid().ToString("N")[..8];
+    private int? _hover;
+    private Geo? _geo;
+
+    private double PlotH => Height - 22;
+    private bool Few => Rows.Count < 3;
+
+    private sealed record Geo(double[] X, double[][] Y, string[] Lines, string[] Fills);
+
+    private double Value(int row, int series) => series < Rows[row].Values.Length ? Rows[row].Values[series] : 0;
+    private string Label(int row) => XFormat is null ? Rows[row].X : XFormat(Rows[row].X);
+
+    /// <summary>At most ~6 labels, evenly spaced, always including the first.</summary>
+    private IEnumerable<int> Ticks
+    {
+        get
+        {
+            var n = Rows.Count;
+            if (n == 0) yield break;
+            var step = Math.Max(1, (int)Math.Ceiling(n / 6.0));
+            for (var j = 0; j < n; j += step) yield return j;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_hover >= Rows.Count) _hover = null;
+        var n = Rows.Count;
+        if (n == 0 || Series.Count == 0) { _geo = null; return; }
+        var pad = 6.0;
+        var xs = Enumerable.Range(0, n).Select(j => n == 1 ? W / 2 : pad + (W - 2 * pad) * j / (n - 1)).ToArray();
+        var max = Stacked
+            ? Enumerable.Range(0, n).Max(j => Enumerable.Range(0, Series.Count).Sum(i => Math.Max(0, Value(j, i))))
+            : Enumerable.Range(0, n).Max(j => Enumerable.Range(0, Series.Count).Max(i => Value(j, i)));
+        var yMax = YMax ?? NiceMax(max);
+        double Y(double v) => PlotH - (PlotH - Top) * Math.Clamp(v / yMax, 0, 1.05);
+
+        var ys = new double[Series.Count][];
+        var lines = new string[Series.Count];
+        var fills = new string[Series.Count];
+        var baseline = Enumerable.Range(0, n).Select(j => new Pt(xs[j], PlotH)).ToList();
+        var cumulative = new double[n];
+        for (var i = 0; i < Series.Count; i++)
+        {
+            var top = new List<Pt>(n);
+            for (var j = 0; j < n; j++)
+            {
+                var v = Math.Max(0, Value(j, i));
+                if (Stacked) cumulative[j] += v;
+                top.Add(new Pt(xs[j], Y(Stacked ? cumulative[j] : v)));
+            }
+            ys[i] = top.Select(p => p.Y).ToArray();
+            lines[i] = n == 1 ? $"M{Cls.Css(xs[0] - 4)},{Cls.Css(top[0].Y)} L{Cls.Css(xs[0] + 4)},{Cls.Css(top[0].Y)}" : Line(top);
+            var lower = Stacked && i > 0 ? Enumerable.Range(0, n).Select(j => new Pt(xs[j], ys[i - 1][j])).ToList() : baseline;
+            fills[i] = n == 1 ? "" : Band(top, lower);
+        }
+        _geo = new Geo(xs, ys, lines, fills);
+    }
+}

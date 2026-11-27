@@ -1,0 +1,19 @@
+<div class="w-full">
+    @if (Label is not null)
+    {
+        <div class="mb-1 flex justify-between text-[11px] text-muted"><span>@Label</span><span class="tabular text-fg-2">@(Value is null ? "—" : $"{Math.Round(V, MidpointRounding.AwayFromZero)}%")</span></div>
+    }
+    <div class="h-1.5 w-full overflow-hidden rounded-full bg-panel-2" role="meter" aria-valuenow="@Cls.Css(V)" aria-valuemin="0" aria-valuemax="100">
+        <div class="h-full rounded-full transition-[width] duration-700" style="width:@(Cls.Css(V))%;background:@Color"></div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public double? Value { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public double WarnAt { get; set; } = 80;
+    [Parameter] public double CritAt { get; set; } = 92;
+
+    private double V => Math.Max(0, Math.Min(100, Value ?? 0));
+    private string Color => V >= CritAt ? "var(--critical)" : V >= WarnAt ? "var(--warning)" : "var(--series-1)";
+}

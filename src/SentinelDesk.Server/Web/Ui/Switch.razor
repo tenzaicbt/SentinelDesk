@@ -1,0 +1,29 @@
+<label class="@Cls.Join("flex items-start gap-3", Disabled ? "opacity-50" : "cursor-pointer")">
+    <button type="button" role="switch" aria-checked="@(Checked ? "true" : "false")" disabled="@Disabled" @onclick="Toggle" @onclick:preventDefault
+            class="@Cls.Join("relative mt-0.5 inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full border border-transparent shadow-xs transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50", Checked ? "bg-brand" : "bg-[#e5e5e5] dark:bg-white/15")">
+        <span class="@Cls.Join("pointer-events-none block size-4 rounded-full bg-panel ring-0 transition-transform dark:bg-fg", Checked ? "translate-x-[calc(100%-2px)] bg-white dark:bg-white" : "translate-x-0")"></span>
+    </button>
+    @if (Label is not null || Description is not null)
+    {
+        <span class="min-w-0">
+            @if (Label is not null)
+            {
+                <span class="block text-sm font-medium text-fg">@Label</span>
+            }
+            @if (Description is not null)
+            {
+                <span class="block text-xs text-muted">@Description</span>
+            }
+        </span>
+    }
+</label>
+
+@code {
+    [Parameter] public bool Checked { get; set; }
+    [Parameter] public EventCallback<bool> CheckedChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private Task Toggle() => Disabled ? Task.CompletedTask : CheckedChanged.InvokeAsync(!Checked);
+}

@@ -1,0 +1,8 @@
+<div class="@Cls.Join("overflow-x-auto", Class)">
+    <table class="@Cls.Table">@ChildContent</table>
+</div>
+
+@code {
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -1,0 +1,7 @@
+@* "Sentinel" in ink (white when inverse) + "Desk" in brand orange, as in doc/logo. *@
+<span class="@Cls.Join("truncate font-extrabold tracking-tight", Inverse ? "text-white" : "text-fg", Class)">Sentinel<span class="text-brand">Desk</span></span>
+
+@code {
+    [Parameter] public bool Inverse { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

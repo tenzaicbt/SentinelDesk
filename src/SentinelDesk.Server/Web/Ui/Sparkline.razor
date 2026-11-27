@@ -1,0 +1,29 @@
+@* Smooth mini trend with a soft gradient (live tiles). *@
+@if (Values.Count < 2)
+{
+    <div style="height:@(Height)px"></div>
+}
+else
+{
+    var max = Max ?? Math.Max(1, Values.Max());
+    var path = ChartMath.Spark(Values, Height, max);
+    <svg viewBox="0 0 100 @Height" preserveAspectRatio="none" class="w-full" style="height:@(Height)px" aria-hidden="true">
+        <defs>
+            <linearGradient id="@_uid" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="@Color" stop-opacity="0.35" />
+                <stop offset="100%" stop-color="@Color" stop-opacity="0" />
+            </linearGradient>
+        </defs>
+        <path d="@($"{path} L100,{Height} L0,{Height} Z")" fill="url(#@_uid)" />
+        <path d="@path" fill="none" stroke="@Color" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" />
+    </svg>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<double> Values { get; set; } = [];
+    [Parameter] public string Color { get; set; } = "var(--series-1)";
+    [Parameter] public int Height { get; set; } = 28;
+    [Parameter] public double? Max { get; set; }
+
+    private readonly string _uid = "sp" + Guid.NewGuid().ToString("N")[..8];
+}

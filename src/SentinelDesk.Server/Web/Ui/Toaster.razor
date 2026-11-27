@@ -1,0 +1,27 @@
+@implements IDisposable
+<div class="sd-toasts" aria-live="polite">
+    @foreach (var t in Toast.Items)
+    {
+        <div class="@($"sd-toast sd-toast-{t.Kind.ToString().ToLowerInvariant()}")" role="status">
+            <Icon Name="@(t.Kind switch { ToastKind.Success => "CheckCircle2", ToastKind.Error => "OctagonAlert", ToastKind.Warning => "AlertTriangle", _ => "Info" })" Class="" />
+            <div class="min-w-0 flex-1">
+                <div class="sd-toast-title">@t.Title</div>
+                @if (!string.IsNullOrEmpty(t.Description))
+                {
+                    <div class="sd-toast-desc">@t.Description</div>
+                }
+            </div>
+            @if (t.ActionLabel is not null)
+            {
+                <button type="button" class="sd-toast-action" @onclick="() => { t.Action?.Invoke(); Toast.Dismiss(t.Id); }">@t.ActionLabel</button>
+            }
+            <button type="button" class="sd-toast-close" aria-label="Close" @onclick="() => Toast.Dismiss(t.Id)"><Icon Name="X" Class="" /></button>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Toast.Changed += Refresh;
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Toast.Changed -= Refresh;
+}

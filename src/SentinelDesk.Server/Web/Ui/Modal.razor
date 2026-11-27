@@ -1,0 +1,38 @@
+@if (Open)
+{
+    <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[10vh]" @onmousedown="Close" @onkeydown="Key">
+        <div role="dialog" aria-modal="true" class="@Cls.Join("w-full rounded-lg border border-line bg-panel shadow-lg animate-rise", Width)" @onmousedown:stopPropagation>
+            <div class="flex items-center justify-between px-5 pt-4 pb-1">
+                <h3 class="text-base leading-none font-semibold">
+                    @if (TitleContent is not null)
+                    {
+                        @TitleContent
+                    }
+                    else
+                    {
+                        @Title
+                    }
+                </h3>
+                <button type="button" @onclick="Close" class="rounded-sm p-1 text-muted opacity-70 transition hover:opacity-100 hover:text-fg" aria-label="Close"><Icon Name="X" Class="size-4" /></button>
+            </div>
+            <div class="max-h-[75vh] overflow-y-auto px-5 py-3">@ChildContent</div>
+            @if (Footer is not null)
+            {
+                <div class="flex justify-end gap-2 px-5 pb-4 pt-1">@Footer</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public RenderFragment? TitleContent { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public string Width { get; set; } = "max-w-lg";
+
+    private Task Close() => OnClose.InvokeAsync();
+    private Task Key(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+}

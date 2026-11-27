@@ -1,0 +1,34 @@
+@* Pick all computers, a branch/department or one computer. *@
+<Segmented TValue="string" Value="Type" ValueChanged="SetType" Options="@TypeOptions" />
+@if (Type != "all")
+{
+    <Dropdown Value="@Target" ValueChanged="TargetChanged" Class="min-w-56" AriaLabel="Choose computers" Options="@TargetOptions" />
+}
+
+@code {
+    [Parameter] public string Type { get; set; } = "orgUnit";
+    [Parameter] public EventCallback<string> TypeChanged { get; set; }
+    [Parameter] public string Target { get; set; } = "";
+    [Parameter] public EventCallback<string> TargetChanged { get; set; }
+    [Parameter] public HashSet<Guid> Exclude { get; set; } = [];
+    [Parameter] public bool AllowAll { get; set; } = true;
+    [Parameter] public List<OrgUnitRow>? Org { get; set; }
+    [Parameter] public List<DeviceRow>? Devices { get; set; }
+
+    private IEnumerable<(string, string)> TypeOptions =>
+        [.. AllowAll ? [("all", "All computers")] : Array.Empty<(string, string)>(), ("orgUnit", "Branch or department"), ("device", "One computer")];
+
+    private IEnumerable<Opt> TargetOptions =>
+    [
+        new("", "Choose…"),
+        .. Type == "orgUnit"
+            ? Cls.Units(Org).Where(o => !Exclude.Contains(o.Id)).Select(o => new Opt(o.Id.ToString(), o.Name))
+            : (Devices ?? []).Where(d => !Exclude.Contains(d.Id)).Select(d => new Opt(d.Id.ToString(), d.Hostname + (d.User is { Length: > 0 } u ? $" · {u}" : ""))),
+    ];
+
+    private async Task SetType(string t)
+    {
+        await TypeChanged.InvokeAsync(t);
+        await TargetChanged.InvokeAsync("");
+    }
+}

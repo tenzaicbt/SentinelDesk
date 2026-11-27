@@ -1,0 +1,104 @@
+@* Emergency "Unblock all": Part = button (the button and its dialog) or banner (the notice while it is on). Super admins only. *@
+@inherits ConsolePage
+
+@if (Session.Can.Super)
+{
+    @if (Part == "banner")
+    {
+        @foreach (var e in _rows ?? [])
+        {
+            <Callout Tone="critical" Icon="ShieldOff">
+                <div class="flex flex-wrap items-center gap-3">
+                    <span class="flex-1"><b>Emergency unblock is on</b> for @e.Scope@(e.UntilUtc is not null ? $" {F.Until(e.UntilUtc)}" : " until turned off"): nothing is blocked there.
+                        Started by @e.CreatedBy @F.Ago(e.CreatedAt)@(e.Reason is { Length: > 0 } ? $" · “{e.Reason}”" : "").</span>
+                    <Btn Size="sm" Variant="primary" OnClick="() => End(e.Id)">Turn blocking back on</Btn>
+                </div>
+            </Callout>
+        }
+    }
+    else
+    {
+        <Btn Variant="danger" Icon="AlertTriangle" OnClick="() => _open = true">Unblock all</Btn>
+        <Modal Open="_open" OnClose="() => _open = false" Title="Emergency: unblock everything">
+            <ChildContent>
+                <div class="space-y-3">
+                    <p class="text-sm text-fg-2">Stops every block policy (websites, applications, USB) right away. Use it when blocking stops people from working.
+                        Policies are not changed and come back when you turn blocking back on.</p>
+                    <Field Label="Where"><Dropdown @bind-Value="_scope" Class="w-full" Options="@ScopeOptions" /></Field>
+                    <DurationPicker @bind-Value="_dur" @bind-Date="_date" Label="For" />
+                    <Field Label="Reason (saved in the audit log)"><input class="@Cls.Input" @bind="_reason" @bind:event="oninput" placeholder="e.g. Payroll site wrongly blocked" /></Field>
+                    <Field Label="Confirm with your password"><input class="@Cls.Input" type="password" @bind="_password" @bind:event="oninput" autocomplete="current-password" /></Field>
+                    @if (Session.Me?.MfaEnabled == true)
+                    {
+                        <Field Label="MFA code"><input class="@Cls.Input" inputmode="numeric" @bind="_code" @bind:event="oninput" placeholder="123456" /></Field>
+                    }
+                </div>
+            </ChildContent>
+            <Footer>
+                <Btn Variant="ghost" OnClick="() => _open = false">Cancel</Btn>
+                <Btn Variant="danger" Loading="_busy" Disabled="string.IsNullOrEmpty(_password)" OnClick="Start">Unblock all</Btn>
+            </Footer>
+        </Modal>
+    }
+}
+
+@code {
+    [Parameter] public string Part { get; set; } = "button";
+    /// <summary>Raised after an unblock starts or ends (the page reloads the banner).</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private List<EmergencyRow>? _rows;
+    private List<OrgUnitRow>? _org;
+    private bool _open, _busy;
+    private string _scope = "", _dur = "1h", _date = "", _reason = "", _password = "", _code = "";
+
+    private IEnumerable<Opt> ScopeOptions => [new("", "All computers"), .. Cls.Units(_org).Select(o => new Opt(o.Id.ToString(), o.Name))];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can.Super) return;
+        if (Part == "banner")
+        {
+            await Load();
+            Every(TimeSpan.FromSeconds(30), Load);
+        }
+        else
+            try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+    }
+
+    public async Task Load()
+    {
+        try { _rows = await Api.GetAsync<List<EmergencyRow>>("/api/emergency"); } catch (ApiException) { }
+        StateHasChanged();
+    }
+
+    private async Task Start()
+    {
+        var (ok, until) = Durations.UntilFrom(_dur, _date, F);
+        if (!ok) { Toast.Error("Choose a date in the future"); return; }
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("/api/emergency", new
+            {
+                orgUnitId = _scope == "" ? (Guid?)null : Guid.Parse(_scope), untilUtc = until, reason = _reason, password = _password, code = _code == "" ? null : _code,
+            });
+            Toast.Success("Blocking is off. Online computers are unblocked within seconds.");
+            _open = false; _password = ""; _code = ""; _reason = "";
+            await OnChanged.InvokeAsync();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+        finally { _busy = false; }
+    }
+
+    private async Task End(Guid id)
+    {
+        try
+        {
+            await Api.DeleteAsync($"/api/emergency/{id}");
+            Toast.Success("Blocking is back on");
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

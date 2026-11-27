@@ -1,0 +1,372 @@
+@page "/policies/{Id:guid}"
+
+<a href="/policies" class="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-fg"><Icon Name="ArrowLeft" Class="size-4" />All policies</a>
+@if (_data is null)
+{
+    <Skeleton Class="h-96" />
+}
+else if (P is not { } p)
+{
+    <Empty Title="Policy not found">It may have been deleted. <a href="/policies" class="text-brand-ink hover:underline">Back to policies</a></Empty>
+}
+else
+{
+    var ro = !Session.Can.Super;
+    var b = _s!.Block;
+    var info = PolicyText.Kind(p.Kind);
+    <PageHeader Title="@p.Name" Icon="@info.Icon" Subtitle="@($"{info.Label}{(p.Description is { Length: > 0 } ? $" · {p.Description}" : "")}")" />
+    <div class="min-w-0 space-y-3">
+        <Card>
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+                    <Field Label="Policy name"><input class="@Cls.Input" @bind="_name" @bind:event="oninput" disabled="@ro" /></Field>
+                    <Field Label="Description (optional)"><input class="@Cls.Input" @bind="_desc" @bind:event="oninput" placeholder="Who is this for?" disabled="@ro" /></Field>
+                </div>
+                @if (Session.Can.Super)
+                {
+                    <div class="flex gap-2">
+                        <Btn Variant="ghost" Icon="Copy" OnClick='() => Nav.NavigateTo($"/policies/new?from={p.Id}")'>Copy</Btn>
+                        <Btn Variant="ghost" Icon="Trash2" OnClick="Remove" AriaLabel="Delete policy" />
+                        <Btn Variant="primary" Icon="Save" Loading="_busy" Disabled="!Dirty" OnClick="Save">Save</Btn>
+                    </div>
+                }
+            </div>
+            <p class="mt-3 text-xs text-muted">
+                @if (Dirty)
+                {
+                    <span class="font-medium text-amber-600 dark:text-warning">You have unsaved changes. Click Save to send them to the computers.</span>
+                }
+                else
+                {
+                    @($"Last changed {F.Ago(p.UpdatedAt)}{(p.UpdatedBy is not null ? $" by {p.UpdatedBy}" : "")}.")
+                }
+            </p>
+        </Card>
+
+        @if (p.Kind == "websites")
+        {
+            <PolicySection Icon="Globe" Title="Websites to block" Text="These websites will not open on the computers this policy applies to.">
+                <ListInput Values="b.Urls" ValuesChanged="v => b.Urls = v" Disabled="ro" Placeholder="Type a website, e.g. tiktok.com, and press Enter">
+                    <Help><code>tiktok.com</code> blocks the whole site. <code>youtube.com/shorts</code> blocks only that part.</Help>
+                </ListInput>
+                <div class="mt-5 border-t border-line pt-4">
+                    <p class="mb-2 text-sm font-medium">Or block a whole type of website</p>
+                    <div class="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+                        @foreach (var (name, examples) in PolicyText.Categories)
+                        {
+                            var on = b.Categories.Contains(name);
+                            <button type="button" disabled="@ro" aria-pressed="@(on ? "true" : "false")"
+                                    @onclick="() => b.Categories = on ? b.Categories.Where(x => x != name).ToList() : [.. b.Categories, name]"
+                                    class="@Cls.Join("flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition disabled:opacity-60", on ? "border-critical/40 bg-critical/5" : "border-line hover:border-line-strong")">
+                                <span class="@Cls.Join("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border", on ? "border-critical bg-critical text-white" : "border-line-strong")">
+                                    @if (on)
+                                    {
+                                        <Icon Name="Ban" Class="size-2.5" />
+                                    }
+                                </span>
+                                <span class="min-w-0">
+                                    <span class="@Cls.Join("block text-sm font-medium", Cls.If(on, "text-critical"))">@name</span>
+                                    <span class="block truncate text-xs text-muted">@examples</span>
+                                </span>
+                            </button>
+                        }
+                    </div>
+                </div>
+                <p class="mt-4 text-xs text-muted">Chrome, Edge, Brave and Firefox show a "blocked by your organisation" page (Firefox after a restart). Other apps cannot reach the site.</p>
+            </PolicySection>
+        }
+        @if (p.Kind == "apps")
+        {
+            <PolicySection Icon="AppWindow" Title="Applications to block" Text="These programs will not open on the computers this policy applies to. If one is already open, it is closed.">
+                <ListInput Values="b.Apps" ValuesChanged="v => b.Apps = v" Disabled="ro" Placeholder="Type a program name, e.g. steam.exe, and press Enter">
+                    <Help>Use the program's file name. Not sure? Open <b>Task Manager → Details</b> while it runs. Use <b>*</b> to match many, e.g. <code>*torrent*</code>.</Help>
+                </ListInput>
+                <div class="mt-5 space-y-3 border-t border-line pt-4">
+                    <Switch Disabled="ro" @bind-Checked="b.NotifyUser" Label="Tell the user why" Description="Shows a message when a blocked program is closed" />
+                    @if (b.NotifyUser)
+                    {
+                        <input class="@Cls.Input" disabled="@ro" maxlength="300" @bind="b.Message" @bind:event="oninput" aria-label="Message shown to the user" />
+                    }
+                </div>
+            </PolicySection>
+        }
+        @if (p.Kind == "usb")
+        {
+            <PolicySection Icon="Usb" Title="Allowed drives" Text="Company-issued drives that always work, even where USB drives are blocked. Mice, keyboards and printers are never blocked.">
+                <ListInput Values="b.UsbAllowSerials" ValuesChanged="v => b.UsbAllowSerials = v.Select(x => x.ToUpperInvariant()).ToList()" Disabled="ro" Placeholder="Drive serial number, e.g. 0701ABCD1234">
+                    <Help>Find the serial on the computer's page (USB events), or pick a drive seen recently below.</Help>
+                </ListInput>
+                @{
+                    var recent = (_recentDrives ?? []).Where(r => !b.UsbAllowSerials.Contains(r.Serial)).ToList();
+                }
+                @if (!ro && recent.Count > 0)
+                {
+                    <div class="mt-4 border-t border-line pt-3">
+                        <p class="mb-2 text-xs font-medium text-fg-2">Drives seen in the last 30 days</p>
+                        <ul class="space-y-1">
+                            @foreach (var r in recent.Take(8))
+                            {
+                                <li class="flex items-center gap-3 text-sm">
+                                    <span class="min-w-0 flex-1 truncate">@(r.Model is { Length: > 0 } ? r.Model : "USB drive") <span class="font-mono text-xs text-muted">@r.Serial</span></span>
+                                    <span class="text-xs text-muted">@r.LastHost · @F.Ago(r.LastSeen)</span>
+                                    <Btn Size="sm" Icon="Plus" OnClick="() => b.UsbAllowSerials = [.. b.UsbAllowSerials, r.Serial]">Allow</Btn>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </PolicySection>
+        }
+
+        <PolicySection Icon="Settings2" Title="Options" Text="By default the policy blocks, all the time, for everyone.">
+            @{
+                var sch = b.Schedule;
+            }
+            <div class="grid gap-5 lg:grid-cols-3">
+                @if (p.Kind != "usb")
+                {
+                    <Field Label="What happens">
+                        <Segmented TValue="string" Value="b.Mode" ValueChanged="v => { if (!ro) b.Mode = v; }" Options="@([("block", "Block"), ("warn", "Warn"), ("log", "Log only")])" />
+                        <p class="mt-1.5 text-xs text-muted">
+                            @(b.Mode == "warn" ? "Allowed, but the user sees a warning and it is recorded." : b.Mode == "log" ? "Allowed and recorded only. Use it to see the effect before blocking." : "Stopped, and the attempt is recorded.")
+                        </p>
+                    </Field>
+                }
+                else
+                {
+                    <Field Label="USB drives">
+                        <Segmented TValue="string" Value="b.UsbMode" ValueChanged="v => { if (!ro) b.UsbMode = v; }" Options="@([("block", "Block"), ("readOnly", "Read-only")])" />
+                        <p class="mt-1.5 text-xs text-muted">@(b.UsbMode == "readOnly" ? "Files can be opened but nothing can be copied to a drive." : "Drives cannot be used. Drives already plugged in are switched off.")</p>
+                    </Field>
+                }
+                <Field Label="When">
+                    <Segmented TValue="string" Value="@(sch.Enabled ? "times" : "always")" ValueChanged="v => { if (!ro) SetWhen(b, v); }" Options="@([("always", "Always"), ("times", "Only at set times")])" />
+                    @if (sch.Enabled)
+                    {
+                        <div class="mt-2 space-y-2">
+                            <div class="flex flex-wrap gap-1">
+                                @foreach (var d in PolicyText.Days)
+                                {
+                                    var on = sch.Days.Contains(d);
+                                    <button type="button" disabled="@ro" aria-pressed="@(on ? "true" : "false")"
+                                            @onclick="() => sch.Days = on ? sch.Days.Where(x => x != d).ToList() : PolicyText.Days.Where(x => x == d || sch.Days.Contains(x)).ToList()"
+                                            class="@Cls.Join("rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset", on ? "bg-brand-soft text-brand-ink ring-brand/40" : "text-muted ring-line")">@d</button>
+                                }
+                            </div>
+                            <div class="flex items-center gap-2 text-xs text-muted">
+                                from <TimePicker Value="@sch.Start" ValueChanged="v => sch.Start = v" Disabled="ro" AriaLabel="From" Class="w-28" />
+                                to <TimePicker Value="@sch.End" ValueChanged="v => sch.End = v" Disabled="ro" AriaLabel="To" Class="w-28" />
+                            </div>
+                            @if (!ro)
+                            {
+                                <button type="button" class="text-xs text-brand-ink hover:underline" @onclick="() => b.Schedule = PolicyText.WorkingHours()">Working hours (Mon–Fri 08:30–17:00)</button>
+                            }
+                        </div>
+                    }
+                </Field>
+                <Field Label="Who">
+                    <Segmented TValue="string" Value="@(b.Users.Count > 0 ? "some" : "all")" ValueChanged='v => { if (!ro && v == "all") b.Users = []; }' Options="@([("all", "Everyone"), ("some", "Only some users")])" />
+                    <div class="mt-2">
+                        <ListInput Values="b.Users" ValuesChanged="v => b.Users = v" Disabled="ro" Placeholder="User or group, e.g. Cashiers">
+                            <Help>A user name (<code>nimal</code>, <code>OFFICE\nimal</code>) or a Windows group (<code>Cashiers</code>). Empty = everyone.</Help>
+                        </ListInput>
+                    </div>
+                </Field>
+            </div>
+        </PolicySection>
+
+        <PolicySection Icon="Target" Title="Which computers" Text="Apply it to all computers, a branch or department, or single computers, always or for a while. A computer can have several policies: all of them apply.">
+            @{
+                var root = _org?.FirstOrDefault(o => o.Type == "organization");
+                var already = p.Assignments.Select(a => a.TargetId).ToHashSet();
+                var onAll = root is not null && already.Contains(root.Id);
+            }
+            @if (p.Assignments.Count == 0)
+            {
+                <Callout Tone="warning">Not applied to any computer yet, so it does nothing. Choose computers below.</Callout>
+            }
+            else
+            {
+                <ul class="flex flex-wrap gap-2">
+                    @foreach (var a in p.Assignments)
+                    {
+                        <TargetChip @key="a.Id" IsDevice="@(a.TargetType == "device")" Until="a.UntilUtc"
+                                    Bold="@(root is not null && a.TargetId == root.Id)" Label="@(root is not null && a.TargetId == root.Id ? "All computers" : a.Name ?? a.TargetId.ToString())"
+                                    OnRemove="@(Session.Can.Super ? () => Unassign(a.Id) : null)" />
+                    }
+                </ul>
+            }
+            @if (Session.Can.Super)
+            {
+                <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+                    <TargetPicker @bind-Type="_aType" @bind-Target="_aTarget" Exclude="already" Org="_org" Devices="_devices" />
+                    <DurationPicker @bind-Value="_aDur" @bind-Date="_aDate" />
+                    <Btn Variant="primary" Disabled="@(_aType == "all" ? root is null || onAll : _aTarget == "")" OnClick="() => Assign(root)">
+                        @(_aType == "all" && onAll ? "Already on all computers" : "Apply")
+                    </Btn>
+                </div>
+            }
+
+            @* exceptions: computers or branches where this policy does not apply, and approved access requests *@
+            <div class="mt-4 border-t border-line pt-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h3 class="text-sm font-medium">Exceptions</h3>
+                        <p class="text-xs text-muted">Computers or branches where this policy does not apply, for example one manager's PC, or a temporary unblock.</p>
+                    </div>
+                    @if (Session.Can.Super && !_exOpen)
+                    {
+                        <Btn Size="sm" Icon="Plus" OnClick="() => _exOpen = true">Add exception</Btn>
+                    }
+                </div>
+                @if (p.Exceptions?.Count > 0)
+                {
+                    <ul class="mt-3 flex flex-wrap gap-2">
+                        @foreach (var x in p.Exceptions)
+                        {
+                            <TargetChip @key="x.Id" IsDevice="@(x.TargetType == "device")" Until="x.UntilUtc" Label="@(x.Name ?? x.TargetId.ToString())"
+                                        Extra="@ExceptionText(x)" OnRemove="@(Session.Can.Super ? () => RemoveException(x.Id) : null)" />
+                        }
+                    </ul>
+                }
+                @if (_exOpen)
+                {
+                    <div class="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line p-3">
+                        <TargetPicker @bind-Type="_xType" @bind-Target="_xTarget" AllowAll="false" Org="_org" Devices="_devices" />
+                        @if (p.Kind != "usb")
+                        {
+                            <input class="@Cls.InputCls("w-56")" @bind="_xValue" @bind:event="oninput" aria-label="Only this item"
+                                   placeholder="@(p.Kind == "websites" ? "Only this site (optional)" : "Only this program (optional)")" />
+                        }
+                        <DurationPicker @bind-Value="_xDur" @bind-Date="_xDate" />
+                        <Btn Variant="primary" Disabled="_xTarget == string.Empty" OnClick="AddException">Add</Btn>
+                        <Btn Variant="ghost" OnClick="() => _exOpen = false">Cancel</Btn>
+                    </div>
+                }
+            </div>
+        </PolicySection>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private List<PolicyRow>? _data;
+    private List<OrgUnitRow>? _org;
+    private List<DeviceRow>? _devices;
+    private List<RecentDrive>? _recentDrives;
+    private string? _editing;
+    private string _name = "", _desc = "", _original = "";
+    private AgentPolicy? _s;
+    private bool _busy, _exOpen;
+    private string _aType = "orgUnit", _aTarget = "", _aDur = "always", _aDate = "";
+    private string _xType = "device", _xTarget = "", _xDur = "always", _xDate = "", _xValue = "";
+
+    private PolicyRow? P => _data?.FirstOrDefault(x => x.Id == Id);
+    private bool Dirty => _s is not null && P is { } p && (Json.Serialize(_s) != _original || _name != p.Name || _desc != (p.Description ?? ""));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Load();
+        try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+        if (Session.Can.Super) try { _devices = await Api.GetAsync<List<DeviceRow>>("/api/devices"); } catch (ApiException) { }
+        if (P?.Kind == "usb") try { _recentDrives = await Api.GetAsync<List<RecentDrive>>("/api/usb/recent-drives"); } catch (ApiException) { }
+    }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<PolicyRow>>("/api/policies"); }
+        catch (ApiException e) { _data ??= []; Toast.Fail(e, "Could not load the policy"); }
+        // start editing a fresh copy whenever the policy (or its version) changes
+        if (P is { } p && _editing != $"{p.Id}:{p.Version}")
+        {
+            _editing = $"{p.Id}:{p.Version}";
+            p.Settings.Block ??= new BlockSettings();
+            _original = Json.Serialize(p.Settings);
+            _s = Json.Deserialize<AgentPolicy>(_original)!;
+            _name = p.Name;
+            _desc = p.Description ?? "";
+        }
+    }
+
+    private static void SetWhen(BlockSettings b, string v)
+    {
+        if (v == "always") b.Schedule.Enabled = false;
+        else if (!b.Schedule.Enabled) { b.Schedule.Enabled = true; if (b.Schedule.Days.Count == 0) b.Schedule.Days = PolicyText.WorkingHours().Days; }
+    }
+
+    private async Task Save()
+    {
+        if (P is not { } p || _s is null) return;
+        _busy = true;
+        try
+        {
+            await Api.PutAsync($"/api/policies/{p.Id}", new { name = _name, description = _desc, settings = _s });
+            Toast.Success("Saved. Online computers get the change within seconds.");
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e, "Could not save the policy"); }
+        finally { _busy = false; }
+    }
+
+    private async Task Remove()
+    {
+        if (P is not { } p) return;
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions { Title = $"Delete \"{p.Name}\"?", Message = "Its computers stop having these things blocked.", Danger = true })) return;
+        try { await Api.DeleteAsync($"/api/policies/{p.Id}"); Nav.NavigateTo("/policies"); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task Assign(OrgUnitRow? root)
+    {
+        if (P is not { } p) return;
+        var (ok, until) = Durations.UntilFrom(_aDur, _aDate, F);
+        if (!ok) { Toast.Error("Choose a date in the future"); return; }
+        var (targetType, targetId) = _aType == "all" ? ("orgUnit", root?.Id.ToString()) : (_aType, _aTarget);
+        if (string.IsNullOrEmpty(targetId)) return;
+        try
+        {
+            await Api.PostAsync($"/api/policies/{p.Id}/assign", new { targetType, targetId = Guid.Parse(targetId), untilUtc = until });
+            Toast.Success(until is not null ? $"Applied {F.Until(until)}." : "Done. Those computers now have this policy.");
+            _aTarget = "";
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task Unassign(Guid id)
+    {
+        try { await Api.DeleteAsync($"/api/policies/assignments/{id}"); await Load(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task AddException()
+    {
+        if (P is not { } p) return;
+        var (ok, until) = Durations.UntilFrom(_xDur, _xDate, F);
+        if (!ok) { Toast.Error("Choose a date in the future"); return; }
+        try
+        {
+            await Api.PostAsync($"/api/policies/{p.Id}/exceptions", new { targetType = _xType, targetId = Guid.Parse(_xTarget), untilUtc = until, value = string.IsNullOrWhiteSpace(_xValue) ? null : _xValue.Trim() });
+            Toast.Success("Exception added. Those computers are updated within seconds.");
+            _xTarget = ""; _xValue = ""; _exOpen = false;
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private async Task RemoveException(Guid id)
+    {
+        try { await Api.DeleteAsync($"/api/policies/exceptions/{id}"); await Load(); }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+
+    private static RenderFragment ExceptionText(PolicyExceptionRow x) => @<span class="text-xs text-muted">@if (x.Value is { Length: > 0 })
+        {
+            @("allows ")<b class="font-mono text-fg-2">@x.Value</b>
+        }
+        else
+        {
+            @("not blocked")
+        }@(x.Global ? " (approved request)" : "")</span>;
+}

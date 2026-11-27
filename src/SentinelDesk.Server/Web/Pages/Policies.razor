@@ -1,0 +1,79 @@
+@page "/policies"
+
+<PageHeader Title="Policies" Icon="ShieldBan" Subtitle="Block websites, applications and USB drives on your computers. A computer gets every policy that applies to it.">
+    <Actions><EmergencyUnblock Part="button" OnChanged="() => _banner?.Load() ?? Task.CompletedTask" /></Actions>
+</PageHeader>
+<div class="mb-3 space-y-3"><EmergencyUnblock @ref="_banner" Part="banner" /></div>
+<AccessRequests OnDecided="Load" />
+@if (_data is null)
+{
+    <div class="grid gap-3 lg:grid-cols-3">
+        @foreach (var _ in PolicyText.KindOrder)
+        {
+            <Skeleton Class="h-64" />
+        }
+    </div>
+}
+else
+{
+    <div class="grid items-start gap-3 lg:grid-cols-3">
+        @foreach (var kind in PolicyText.KindOrder)
+        {
+            var info = PolicyText.Kind(kind);
+            var list = _data.Where(p => p.Kind == kind).ToList();
+            <Card Pad="false">
+                <div class="flex items-start gap-3 border-b border-line p-4">
+                    <span class="grid size-10 shrink-0 place-items-center rounded-lg bg-critical/10 text-critical"><Icon Name="@info.Icon" Class="size-5" /></span>
+                    <div class="min-w-0 flex-1">
+                        <h2 class="font-semibold">@info.Label</h2>
+                        <p class="text-xs text-muted">@info.Text</p>
+                    </div>
+                </div>
+                @if (list.Count > 0)
+                {
+                    <ul class="divide-y divide-line">
+                        @foreach (var p in list)
+                        {
+                            var used = p.Assignments.Count > 0;
+                            <li @key="p.Id">
+                                <a href="@($"/policies/{p.Id}")" class="group flex items-center gap-3 px-4 py-3 hover:bg-panel-2">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-sm font-medium">@p.Name</div>
+                                        <div class="truncate text-xs text-fg-2">@PolicyText.Summary(p)</div>
+                                        <div class="@Cls.Join("mt-0.5 truncate text-xs", used ? "text-muted" : "text-amber-600 dark:text-warning")">
+                                            @(used ? $"On {string.Join(", ", p.Assignments.Select(a => a.Name ?? "Unknown"))}" : "Not applied to any computer yet") · @F.Ago(p.UpdatedAt)
+                                        </div>
+                                    </div>
+                                    <Icon Name="ChevronRight" Class="size-4 shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-fg" />
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p class="px-4 py-6 text-center text-sm text-muted">No @info.Short.ToLowerInvariant() are blocked yet.</p>
+                }
+                @if (Session.Can.Super)
+                {
+                    <div class="border-t border-line p-3">
+                        <Btn Class="w-full" Icon="Plus" OnClick='() => Nav.NavigateTo($"/policies/new?kind={kind}")'>New @info.Label.ToLowerInvariant() policy</Btn>
+                    </div>
+                }
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    private List<PolicyRow>? _data;
+    private EmergencyUnblock? _banner;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<PolicyRow>>("/api/policies"); }
+        catch (ApiException e) { _data ??= []; Toast.Fail(e, "Could not load policies"); }
+    }
+}

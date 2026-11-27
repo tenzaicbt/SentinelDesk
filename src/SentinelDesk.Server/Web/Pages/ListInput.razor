@@ -1,0 +1,57 @@
+@* A list the user types into: Enter (or comma) adds, the × removes. *@
+<div>
+    @if (!Disabled)
+    {
+        <div class="flex gap-2">
+            <input class="@Cls.InputCls("flex-1")" value="@_v" placeholder="@Placeholder" data-prevent-keys="Enter ," @oninput="e => _v = e.Value?.ToString() ?? string.Empty" @onkeydown="Key" />
+            <Btn Icon="Plus" Disabled="string.IsNullOrWhiteSpace(_v)" OnClick="Add">Add</Btn>
+        </div>
+    }
+    @if (Help is not null)
+    {
+        <p class="mt-1.5 text-xs text-muted [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_code]:font-mono">@Help</p>
+    }
+    @if (Values.Count > 0)
+    {
+        <ul class="mt-3 flex flex-wrap gap-1.5">
+            @foreach (var x in Values)
+            {
+                <li @key="x" class="inline-flex items-center gap-1 rounded-md border border-line bg-panel-2 py-0.5 pr-1 pl-2 font-mono text-xs">
+                    @x
+                    @if (!Disabled)
+                    {
+                        <button type="button" class="rounded p-0.5 text-muted hover:bg-panel hover:text-critical" @onclick="() => Remove(x)" aria-label="@($"Remove {x}")"><Icon Name="X" Class="size-3" /></button>
+                    }
+                </li>
+            }
+        </ul>
+    }
+    else
+    {
+        <p class="mt-3 text-xs text-muted italic">None yet</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<string> Values { get; set; } = [];
+    [Parameter] public EventCallback<List<string>> ValuesChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public RenderFragment? Help { get; set; }
+
+    private string _v = "";
+
+    private async Task Key(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or ",") await Add();
+    }
+
+    private async Task Add()
+    {
+        var items = _v.Split([',', '\n']).Select(x => x.Trim()).Where(x => x.Length > 0 && !Values.Contains(x)).Distinct().ToList();
+        _v = "";
+        if (items.Count > 0) await ValuesChanged.InvokeAsync([.. Values, .. items]);
+    }
+
+    private Task Remove(string x) => ValuesChanged.InvokeAsync(Values.Where(y => y != x).ToList());
+}

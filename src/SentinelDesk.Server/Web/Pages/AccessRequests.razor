@@ -1,0 +1,65 @@
+@* Users asked to use something that is blocked; approving allows it on that computer only. *@
+@inherits ConsolePage
+
+@if (_data?.Count > 0)
+{
+    <Card Class="mb-3 border-amber-500/40" Subtitle="Users asked to use something that is blocked. Approving allows it on that computer only.">
+        <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="Hand" Class="size-4 text-warning" />Access requests <Badge Tone="warning">@_data.Count</Badge></span></TitleContent>
+        <ChildContent>
+            <ul class="divide-y divide-line">
+                @foreach (var r in _data)
+                {
+                    <li @key="r.Id" class="flex flex-wrap items-center gap-3 py-2.5">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm"><b class="font-mono">@r.Value</b> <span class="text-muted">· @PolicyText.RequestKindLabel.GetValueOrDefault(r.Kind, r.Kind)</span></div>
+                            <div class="text-xs text-muted">@(r.User ?? "A user") on @(r.Hostname ?? "a computer") · @F.Ago(r.CreatedAt)</div>
+                            @if (r.Reason is not null)
+                            {
+                                <div class="mt-0.5 text-xs text-fg-2">“@r.Reason”</div>
+                            }
+                        </div>
+                        @if (Session.Can.Write)
+                        {
+                            <div class="flex flex-wrap gap-1.5">
+                                <Btn Size="sm" Variant="primary" Icon="Check" OnClick='() => Decide(r, "approve", "1h")'>Allow 1 hour</Btn>
+                                <Btn Size="sm" OnClick='() => Decide(r, "approve", "today")'>Today</Btn>
+                                <Btn Size="sm" OnClick='() => Decide(r, "approve", "always")'>Always</Btn>
+                                <Btn Size="sm" Variant="ghost" Icon="X" OnClick='() => Decide(r, "reject", null)'>Decline</Btn>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        </ChildContent>
+    </Card>
+}
+
+@code {
+    [Parameter] public EventCallback OnDecided { get; set; }
+
+    private List<AccessRequestRow>? _data;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        Every(TimeSpan.FromSeconds(20), Load);
+    }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<AccessRequestRow>>("/api/access-requests?status=pending"); } catch (ApiException) { }
+    }
+
+    private async Task Decide(AccessRequestRow r, string action, string? duration)
+    {
+        try
+        {
+            var until = duration is null ? null : Durations.UntilFrom(duration, "", F).Until;
+            await Api.PostAsync($"/api/access-requests/{r.Id}/{action}", action == "approve" ? new { untilUtc = until } : new { });
+            Toast.Success(action == "approve" ? $"Allowed {r.Value} on {r.Hostname}" : "Request declined");
+            await Load();
+            await OnDecided.InvokeAsync();
+        }
+        catch (ApiException e) { Toast.Fail(e); }
+    }
+}

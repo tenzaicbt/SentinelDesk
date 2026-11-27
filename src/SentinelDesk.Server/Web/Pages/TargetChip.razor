@@ -1,0 +1,29 @@
+<li class="inline-flex items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 py-1.5 text-sm">
+    <Icon Name="@(IsDevice ? "Monitor" : "Building2")" Class="size-3.5 text-muted" />
+    @if (Bold)
+    {
+        <b>@Label</b>
+    }
+    else
+    {
+        @Label
+    }
+    @Extra
+    @if (Until is not null)
+    {
+        <span class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-warning"><Icon Name="Clock" Class="size-3" />@F.Until(Until)</span>
+    }
+    @if (OnRemove is not null)
+    {
+        <button type="button" @onclick="() => OnRemove()" aria-label="Remove"><Icon Name="X" Class="size-3.5 text-muted hover:text-critical" /></button>
+    }
+</li>
+
+@code {
+    [Parameter] public bool IsDevice { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public bool Bold { get; set; }
+    [Parameter] public DateTime? Until { get; set; }
+    [Parameter] public RenderFragment? Extra { get; set; }
+    [Parameter] public Func<Task>? OnRemove { get; set; }
+}

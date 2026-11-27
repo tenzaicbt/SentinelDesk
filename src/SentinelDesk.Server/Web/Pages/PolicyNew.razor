@@ -1,0 +1,88 @@
+@page "/policies/new"
+
+<a href="/policies" class="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-fg"><Icon Name="ArrowLeft" Class="size-4" />All policies</a>
+<PageHeader Title="@(_from is not null ? $"Copy \"{_from.Name}\"" : "New policy")" Icon="FilePlus2"
+            Subtitle="@(_from is not null ? "The copy starts with the same rules. You can change them on the next page." : "Choose what to block, then give the policy a name.")" />
+@if (!Session.Can.Super)
+{
+    <Callout Tone="warning">Only administrators can create policies.</Callout>
+}
+else if (_data is null)
+{
+    <Skeleton Class="h-72 max-w-3xl" />
+}
+else
+{
+    <form class="max-w-3xl space-y-3" @onsubmit="Submit" @onsubmit:preventDefault>
+        @if (_from is null)
+        {
+            <Card>
+                <h2 class="mb-3 text-sm font-semibold">1. What do you want to block?</h2>
+                <div class="grid gap-2 sm:grid-cols-3">
+                    @foreach (var k in PolicyText.KindOrder)
+                    {
+                        var info = PolicyText.Kind(k);
+                        <button type="button" @onclick="() => _picked = k" aria-pressed="@(_picked == k ? "true" : "false")"
+                                class="@Cls.Join("flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition", _picked == k ? "border-brand/60 bg-brand-soft" : "border-line hover:border-line-strong")">
+                            <span class="@Cls.Join("grid size-9 place-items-center rounded-md [&_svg]:size-4.5", _picked == k ? "bg-brand text-white" : "bg-panel-2 text-muted")"><Icon Name="@info.Icon" Class="size-4.5" /></span>
+                            <span class="text-sm font-medium">@info.Short</span>
+                            <span class="text-xs text-muted">@info.Text</span>
+                        </button>
+                    }
+                </div>
+            </Card>
+        }
+        @if (KindValue is { } kind)
+        {
+            <Card>
+                <h2 class="mb-3 text-sm font-semibold">@(_from is not null ? "Name the copy" : "2. Give it a name")</h2>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <Field Label="Name"><input class="@Cls.Input" data-autofocus="" required maxlength="100" @bind="_name" @bind:event="oninput" placeholder="@PolicyText.Kind(kind).Placeholder" /></Field>
+                    <Field Label="Description (optional)"><input class="@Cls.Input" maxlength="200" @bind="_desc" @bind:event="oninput" placeholder="Who is this for?" /></Field>
+                </div>
+                <div class="mt-4 flex justify-end gap-2 border-t border-line pt-4">
+                    <Btn Variant="ghost" OnClick='() => Nav.NavigateTo("/policies")'>Cancel</Btn>
+                    <Btn Type="submit" Variant="primary" Loading="_busy" Disabled="string.IsNullOrWhiteSpace(_name)">Create policy</Btn>
+                </div>
+            </Card>
+        }
+    </form>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "kind")] public string? KindQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "from")] public string? FromQuery { get; set; }
+
+    private List<PolicyRow>? _data;
+    private PolicyRow? _from;
+    private string? _picked;
+    private string _name = "", _desc = "";
+    private bool _busy;
+
+    private string? KindValue => _from?.Kind ?? _picked;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (KindQuery is { } k && PolicyText.KindOrder.Contains(k)) _picked = k;
+        try { _data = await Api.GetAsync<List<PolicyRow>>("/api/policies"); }
+        catch (ApiException e) { _data = []; Toast.Fail(e, "Could not load policies"); }
+        _from = _data.FirstOrDefault(p => p.Id.ToString() == FromQuery);
+    }
+
+    private async Task Submit()
+    {
+        if (KindValue is not { } kind || string.IsNullOrWhiteSpace(_name) || _busy) return;
+        var settings = _from is not null
+            ? Json.Deserialize<AgentPolicy>(Json.Serialize(_from.Settings))!
+            : new AgentPolicy { Collectors = new CollectorSettings { UsbBlock = kind == "usb" }, Block = new BlockSettings() };
+        _busy = true;
+        try
+        {
+            var r = await Api.PostAsync<IdResult>("/api/policies", new { name = _name.Trim(), description = string.IsNullOrWhiteSpace(_desc) ? null : _desc.Trim(), kind, settings });
+            Toast.Success(kind == "usb" ? "Policy created. Now choose which computers it applies to." : "Policy created. Now add what to block and choose the computers.");
+            Nav.NavigateTo($"/policies/{r.Id}", replace: true);
+        }
+        catch (ApiException e) { Toast.Fail(e, "Could not create the policy"); }
+        finally { _busy = false; }
+    }
+}

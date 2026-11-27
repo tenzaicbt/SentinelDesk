@@ -1,0 +1,17 @@
+@* "For how long": always, 1 hour, end of today or until a chosen date and time. *@
+<div class="flex flex-wrap items-center gap-2">
+    <span class="text-xs text-muted">@Label</span>
+    <Dropdown Value="@Value" ValueChanged="ValueChanged" AriaLabel="@Label" Options="@Durations.Options.Select(o => new Opt(o.Value, o.Label))" />
+    @if (Value == "date")
+    {
+        <DatePicker WithTime="true" Value="@Date" ValueChanged="DateChanged" Min="@F.Now.ToString("yyyy-MM-dd")" Placeholder="Choose date and time" AriaLabel="Until" Class="w-52" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "always";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Date { get; set; } = "";
+    [Parameter] public EventCallback<string> DateChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "For";
+}

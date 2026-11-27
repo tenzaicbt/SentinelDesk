@@ -1,0 +1,20 @@
+<Card>
+    <div class="mb-3 flex items-start gap-2.5">
+        <span class="mt-0.5 text-muted"><Icon Name="@Icon" Class="size-4" /></span>
+        <div>
+            <h2 class="text-sm font-semibold">@Title</h2>
+            @if (Text is not null)
+            {
+                <p class="mt-0.5 text-xs text-muted">@Text</p>
+            }
+        </div>
+    </div>
+    @ChildContent
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Text { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

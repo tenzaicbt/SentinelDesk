@@ -1,14 +1,13 @@
 <#
 .SYNOPSIS
   Builds a release of SentinelDesk:
-    publish/server  - self-contained web server (API + console), runnable as a Windows service
+    publish/server  - self-contained web server (API + Blazor console), runnable as a Windows service
     publish/agent   - self-contained agent bundle (Agent service, Guard watchdog, Tray app, install scripts)
     publish/SentinelDesk-Agent-<version>.zip - package for staged rollout via the console
 #>
 param(
     [string] $Configuration = 'Release',
-    [string] $Runtime = 'win-x64',
-    [switch] $SkipWeb
+    [string] $Runtime = 'win-x64'
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -22,14 +21,6 @@ function Stop-DevInstances {
     if ($procs) { Start-Sleep -Seconds 2 }
 }
 Stop-DevInstances
-
-if (-not $SkipWeb) {
-    Write-Host '>> Building web console' -ForegroundColor Cyan
-    Push-Location (Join-Path $root 'web/console')
-    npm ci
-    npm run build
-    Pop-Location
-}
 
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 $common = @('-c', $Configuration, '-r', $Runtime, '--self-contained', 'true', '-p:DebugType=none', '-p:GenerateDocumentationFile=false')

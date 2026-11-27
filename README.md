@@ -23,15 +23,15 @@ src/
   SentinelDesk.Agent/    Windows service (LocalSystem): collectors, encrypted offline queue, uploader, live command channel
   SentinelDesk.Guard/    watchdog service: restarts agent, binary-integrity check, verified updates with rollback
   SentinelDesk.Tray/     per-user tray app: status icon, monitoring notice, foreground-app/idle tracking (no Exit)
-  SentinelDesk.Server/   ASP.NET Core: agent API, console REST API, SignalR hubs, alert engine, retention, demo fleet
-web/console/             React + TypeScript + Tailwind console (built into the server's wwwroot)
+  SentinelDesk.Server/   ASP.NET Core: agent API, console REST API, SignalR hubs, alert engine, retention, demo fleet,
+                         and the web console (Blazor Server, C#) in Web/ with its static files in wwwroot/
 deploy/agent/            install-agent.ps1 / uninstall-agent.ps1 (GPO / Intune / SCCM)
 build.ps1                release build → publish/
 ```
 
 ## Quick start (development)
 
-Requirements: .NET 10 SDK, Node 20+.
+Requirements: .NET 10 SDK (nothing else: the console is part of the server, no Node.js or npm).
 
 **One command:** `.\dev.ps1` starts the server and opens the console; `.\dev.ps1 -Agent` also runs the agent and tray
 on this PC (they enroll automatically with the built-in dev token). Use an Administrator terminal for full collection.
@@ -39,14 +39,14 @@ on this PC (they enroll automatically with the built-in dev token). Use an Admin
 Or manually:
 
 ```powershell
-cd web/console; npm install; npm run build          # builds the console into the server's wwwroot
-cd ../../src/SentinelDesk.Server
+cd src/SentinelDesk.Server
 $env:ASPNETCORE_ENVIRONMENT = 'Development'          # enables the simulated island-wide demo fleet
 dotnet run
 ```
 
 Open **http://localhost:5080** and sign in as `admin` / `ChangeMe@2026` — you are forced to set a new password at first sign-in.
-For UI work run `npm run dev` in `web/console` (http://localhost:5173, proxies to the server).
+For UI work run `dotnet watch` in `src/SentinelDesk.Server`: Razor pages (`Web/Pages`, `Web/Ui`) reload as you edit.
+The console is styled by `wwwroot/css/tailwind.css` (the design tokens and utility classes) plus `wwwroot/css/console.css`.
 
 Demo mode creates ~40 simulated devices across 12 branches with 14 days of history. Remove them under
 *Agent management → Trust & keys → Purge simulated devices*, and keep `Demo:Enabled=false` in production.

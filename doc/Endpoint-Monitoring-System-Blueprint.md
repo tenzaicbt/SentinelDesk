@@ -73,7 +73,7 @@
             └──────────────────┘   └─────────────────┘   └──────────────────────┘
                                                                  ▲
                                 ┌────────────────────────────────┴───────────────┐
-                                │  Web Console (Next.js / React) — Admin UI       │
+                                │  Web Console (Blazor Server, C#) — Admin UI     │
                                 │  Dashboards · Devices · Policies · Reports      │
                                 └─────────────────────────────────────────────────┘
 ```
@@ -124,12 +124,13 @@
 
 | Layer | Technology |
 |---|---|
-| Framework | **Next.js (App Router) + TypeScript** |
-| UI | Tailwind CSS + shadcn/ui |
-| Tables | TanStack Table (virtualized, server-side paging) |
-| Charts | Apache ECharts or Recharts |
-| Live updates | `@microsoft/signalr` client |
-| Data fetching | TanStack Query |
+| Framework | **Blazor Server (ASP.NET Core, C#)**, hosted in SentinelDesk.Server: no separate front-end build |
+| UI | Razor components with the compiled Tailwind design tokens (`wwwroot/css/tailwind.css`) |
+| Tables | Razor tables, filtered and sorted in C# |
+| Charts | SVG drawn in C# (monotone area charts, rank bars, sparklines) |
+| Maps | Leaflet through a small JS interop file (`wwwroot/js/console.js`) |
+| Live updates | .NET SignalR client to `/hubs/console` |
+| Data fetching | Typed `HttpClient` calls to the server's own REST API (same authorization and audit as before) |
 | Maps (branches) | Leaflet (Sri Lanka branch map, device online status by location) |
 
 ---
@@ -497,7 +498,7 @@ SentinelDesk/
 │  ├─ SentinelDesk.Infrastructure/   # EF Core, Timescale, Redis, RabbitMQ, CA client
 │  └─ SentinelDesk.Pki/              # step-ca integration
 ├─ web/
-│  └─ console/                       # Next.js App Router + TS + Tailwind + shadcn
+│  └─ (console is in SentinelDesk.Server/Web: Blazor Server components)
 ├─ deploy/
 │  ├─ docker-compose.yml
 │  ├─ k8s/                           # Helm charts

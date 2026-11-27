@@ -10,16 +10,13 @@
 .EXAMPLE
   .\dev.ps1              # server + console (demo fleet)
   .\dev.ps1 -Agent       # also run the agent + tray on this PC (auto-enrolls into the local server)
-  .\dev.ps1 -Rebuild     # force a rebuild of the web console first
   .\dev.ps1 -Stop        # stop everything started by dev.ps1
 #>
-param([switch] $Agent, [switch] $Rebuild, [switch] $Stop)
+param([switch] $Agent, [switch] $Stop)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $run = Join-Path $root '.run'
-$web = Join-Path $root 'web\console'
 $serverSrc = Join-Path $root 'src\SentinelDesk.Server'
-$wwwroot = Join-Path $serverSrc 'wwwroot\index.html'
 $dataDir = Join-Path $run 'data'
 
 # Stops SentinelDesk processes started from THIS repo (dev builds or .run copies) so their files are not locked.
@@ -58,19 +55,8 @@ function Start-InWindow($exe, $workDir, [hashtable] $envVars) {
 }
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw '.NET SDK not found - install .NET 10 SDK' }
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'Node.js not found - install Node 20+' }
 
-# 1. Web console (built into the server's wwwroot)
-if ($Rebuild -or -not (Test-Path $wwwroot)) {
-    Write-Host '>> Building web console...' -ForegroundColor Cyan
-    Push-Location $web
-    if (-not (Test-Path 'node_modules')) { npm install }
-    npm run build
-    if ($LASTEXITCODE) { Pop-Location; throw 'web build failed' }
-    Pop-Location
-}
-
-# 2. Local data: keep the database & keys from earlier runs of `dotnet run` (bin\Debug\...\data) the first time
+# 1. Local data: keep the database & keys from earlier runs of `dotnet run` (bin\Debug\...\data) the first time
 if (-not (Test-Path (Join-Path $dataDir 'sentineldesk.db'))) {
     $legacy = Join-Path $serverSrc 'bin\Debug\net10.0\data'
     New-Item -ItemType Directory -Force $dataDir | Out-Null
@@ -80,7 +66,7 @@ if (-not (Test-Path (Join-Path $dataDir 'sentineldesk.db'))) {
     }
 }
 
-# 3. Server
+# 2. Server
 $running = Test-Server
 if ($running) {
     Write-Host '>> Something else is already serving http://localhost:5080 (e.g. an installed/published server) - using it' -ForegroundColor Yellow
@@ -102,7 +88,7 @@ if ($running) {
     if (-not $ok) { throw 'Server did not start - check the server console window for errors (port 5080/5443 in use?)' }
 }
 
-# 4. Optional: agent + tray on this PC
+# 3. Optional: agent + tray on this PC
 if ($Agent) {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $admin) { Write-Host '   note: not elevated - per-app bandwidth, DNS/websites and USB control need an Administrator terminal' -ForegroundColor Yellow }

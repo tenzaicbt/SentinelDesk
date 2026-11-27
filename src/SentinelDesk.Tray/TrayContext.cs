@@ -18,6 +18,7 @@ public sealed class TrayContext : ApplicationContext
     private bool _locationEnabled;
     private string _state = "starting";
     private StatusForm? _status;
+    private readonly TrayMenu _menu;
 
     public TraySettings Settings { get; private set; } = new();
     public PipeMessage? LastStatus { get; private set; }
@@ -28,18 +29,18 @@ public sealed class TrayContext : ApplicationContext
     {
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _location = new LocationTracker(_pipe);
-        var menu = new ContextMenuStrip { ShowImageMargin = false, Font = new Font("Segoe UI", 9.5f), Padding = new Padding(4) };
-        menu.Items.Add("Status", null, (_, _) => ShowStatus());
-        menu.Items.Add("Monitoring notice", null, (_, _) => ShowNotice());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Contact support", null, (_, _) => MessageBox.Show(Settings.ContactIt, "Contact support", MessageBoxButtons.OK, MessageBoxIcon.Information));
-        menu.Items.Add("About SentinelDesk", null, (_, _) => MessageBox.Show(
+        var menu = _menu = new TrayMenu();
+        menu.Add("Status", Glyphs.Status, ShowStatus);
+        menu.Add("Monitoring notice", Glyphs.Notice, ShowNotice);
+        menu.AddSeparator();
+        menu.Add("Contact support", Glyphs.Support, () => MessageBox.Show(Settings.ContactIt, "Contact support", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        menu.Add("About SentinelDesk", Glyphs.About, () => MessageBox.Show(
             $"SentinelDesk Endpoint Agent {AgentVersion ?? "1.0.0"}\nDevice ID: {DeviceId ?? "not enrolled"}\n\nThis agent is managed by your organisation and cannot be closed by users.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Request access…", null, (_, _) => new RequestAccessForm().Show());
-        menu.Items.Add("Enter unlock code…", null, (_, _) => new UnlockCodeForm().Show());
-        menu.Items.Add("Reconnect to server (administrator)…", null, (_, _) => StartReconnect());
+        menu.AddSeparator();
+        menu.Add("Request access…", Glyphs.Request, () => new RequestAccessForm().Show());
+        menu.Add("Enter unlock code…", Glyphs.Unlock, () => new UnlockCodeForm().Show());
+        menu.Add("Reconnect to server (administrator)…", Glyphs.Reconnect, StartReconnect);
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = true, Text = "SentinelDesk — starting…", Icon = Icons.For("starting") };
         _icon.DoubleClick += (_, _) => ShowStatus();
@@ -110,6 +111,15 @@ public sealed class TrayContext : ApplicationContext
             _ => "SentinelDesk — attention required"
         };
         _icon.Text = text.Length > 63 ? text[..63] : text;
+        _menu.SetStatus(state switch
+        {
+            "connected" => "Protected and connected",
+            "offline" => "Offline · data is kept until it reconnects",
+            "pending" => "Waiting for approval by your IT team",
+            "agent-down" => "Agent service not running",
+            "starting" => "Starting…",
+            _ => detail is { Length: > 0 } ? detail : "Attention required",
+        }, Icons.ColorFor(state));
     }
 
     public string State => _state;
@@ -173,7 +183,7 @@ public static class Icons
     public static Icon App => _app ??= LoadApp(32);
     private static Icon? _app;
 
-    private static Icon LoadApp(int size)
+    internal static Icon LoadApp(int size)
     {
         using var s = typeof(Icons).Assembly.GetManifestResourceStream("SentinelDesk.ico");
         return s is null ? (Icon)SystemIcons.Application.Clone() : new Icon(s, size, size);

@@ -1,0 +1,28 @@
+<section>
+    <h3 class="mb-2 text-xs font-medium text-muted">@Heading</h3>
+    @if (Rows.Count > 0)
+    {
+        var total = Math.Max(1, Rows.Sum(r => r.Count));
+        <ul class="space-y-2">
+            @foreach (var (label, count) in Rows)
+            {
+                <li class="text-[13px]">
+                    <div class="mb-1 flex items-baseline justify-between gap-3">
+                        <span class="min-w-0 truncate text-fg">@label</span>
+                        <span class="shrink-0 tabular text-fg-2">@F.Num(count) device@(count == 1 ? "" : "s")<span class="ml-1.5 text-muted">@Math.Round(count * 100.0 / total, MidpointRounding.AwayFromZero)%</span></span>
+                    </div>
+                    <div class="h-1.5 rounded-full bg-panel-2"><div class="h-full rounded-full" style="width:@(Cls.Css(Math.Max(2, count * 100.0 / total)))%;background:var(--series-1)"></div></div>
+                </li>
+            }
+        </ul>
+    }
+    else
+    {
+        <p class="text-xs text-muted">No data yet</p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Heading { get; set; } = "";
+    [Parameter, EditorRequired] public List<(string Label, int Count)> Rows { get; set; } = [];
+}

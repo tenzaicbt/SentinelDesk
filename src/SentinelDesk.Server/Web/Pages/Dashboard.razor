@@ -1,0 +1,206 @@
+@page "/"
+@inherits ConsolePage
+
+@if (_data is null)
+{
+    <PageHeader Title="Overview" Icon="LayoutDashboard" />
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        @for (var i = 0; i < 4; i++)
+        {
+            <Skeleton Class="h-32" />
+        }
+    </div>
+    <Skeleton Class="mt-4 h-80" />
+}
+else
+{
+    var k = _data.Kpis;
+    var todayTotal = k.TodayBytesIn + k.TodayBytesOut;
+    var onlinePct = k.Total > 0 ? Math.Round(k.Online * 100.0 / k.Total, MidpointRounding.AwayFromZero) : 0;
+    var located = _data.DeviceLocations?.Count ?? 0;
+
+    <PageHeader Title="@($"{Greeting}, {Session.Me?.DisplayName.Split(' ')[0]}")" Icon="LayoutDashboard"
+                Subtitle="@($"Fleet snapshot · {F.LongDate(F.Now)}")" />
+
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat Label="Devices online" Icon="Monitor">
+            <ChildContent>@k.Online<span class="text-lg text-muted"> / @k.Total</span></ChildContent>
+            <Sub><span class="inline-flex items-center gap-1.5"><OnlineDot Online="true" />@onlinePct% of fleet@(k.Pending > 0 ? $" · {k.Pending} pending approval" : "")</span></Sub>
+        </Stat>
+        <Stat Label="Data used today" Icon="Wifi" Trend="@(k.YesterdayBytes > 0 ? (todayTotal - k.YesterdayBytes) * 100.0 / k.YesterdayBytes : null)" GoodWhenDown="true">
+            <ChildContent>@Fmt.Bytes(todayTotal)</ChildContent>
+            <Sub>vs yesterday · ↓ @Fmt.Bytes(k.TodayBytesIn) ↑ @Fmt.Bytes(k.TodayBytesOut)</Sub>
+        </Stat>
+        <Stat Label="Active work time today" Icon="Clock">
+            <ChildContent>@F.Num(k.ActiveHoursToday) h</ChildContent>
+            <Sub>across @k.Online online devices</Sub>
+        </Stat>
+        <Stat Label="Open alerts" Icon="Bell">
+            <ChildContent>@k.OpenAlerts</ChildContent>
+            <Sub>
+                @if (k.CriticalAlerts > 0)
+                {
+                    <Badge Tone="critical">@k.CriticalAlerts critical</Badge>
+                }
+                else
+                {
+                    <span>none critical</span>
+                }
+            </Sub>
+        </Stat>
+    </div>
+
+    <div class="mt-4 grid gap-3 xl:grid-cols-3">
+        <Card Class="xl:col-span-2" Title="Network data usage" Subtitle="All devices · last 14 days">
+            <Actions><Legend Items="Legend.DownUp" /></Actions>
+            <ChildContent>
+                <AreaChart Rows="@_data.Usage.Select(u => new AreaChart.Row(u.Day, [u.BytesIn, u.BytesOut])).ToList()" Series="DownUp" Height="260"
+                           Stacked="true" Total="true" XFormat="F.ShortDay" TipFormat="v => Fmt.Bytes(v)" />
+            </ChildContent>
+        </Card>
+        <Card Title="Top data consumers today" Subtitle="Devices by total traffic">
+            <Actions><a href="/reports" class="text-xs text-brand-ink hover:underline">Report</a></Actions>
+            <ChildContent>
+                @if (_data.TopConsumers.Count > 0)
+                {
+                    <RankBars Rows="@_data.TopConsumers.Select(c => new RankBars.Bar(c.DeviceId.ToString(), c.Hostname ?? "", c.Bytes))" Format="v => Fmt.Bytes(v)"
+                              OnClick="@(id => Nav.NavigateTo($"/devices/{id}"))" />
+                }
+                else
+                {
+                    <Empty Title="No traffic yet today" />
+                }
+            </ChildContent>
+        </Card>
+    </div>
+
+    <div class="mt-4 grid gap-3 xl:grid-cols-3">
+        <Card Class="xl:col-span-2" Pad="false"
+              Subtitle="@($"Large markers = branches (size = devices, ring = share online: green ≥80%, amber ≥50%, red below){(located > 0 ? $" · small dots = {located} located device{(located == 1 ? "" : "s")} (green online, grey offline)" : "")}")">
+            <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="MapPin" Class="size-3.5" />Branch network</span></TitleContent>
+            <ChildContent>
+                <div class="p-3 pt-1">
+                    <BranchMap Branches="_data.Branches" Devices="_data.DeviceLocations"
+                               OnSelect="@(id => Nav.NavigateTo($"/devices?orgUnitId={id}"))" OnSelectDevice="@(id => Nav.NavigateTo($"/devices/{id}"))" />
+                </div>
+            </ChildContent>
+        </Card>
+        <Card Title="Branches" Subtitle="Online / total devices">
+            <ul class="divide-y divide-line">
+                @foreach (var b in _data.Branches.Take(10))
+                {
+                    <li>
+                        <a href="@($"/devices?orgUnitId={b.Id}")" class="flex items-center justify-between gap-3 py-2 text-sm hover:text-brand-ink">
+                            <span class="truncate">@b.Name</span>
+                            <span class="flex items-center gap-3 tabular text-fg-2">
+                                <span class="text-xs text-muted">@Fmt.Bytes(b.TodayBytes)</span>
+                                <span><span class="font-medium text-fg">@b.Online</span>/@b.Total</span>
+                            </span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        </Card>
+    </div>
+
+    <div class="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        <Card Subtitle="Foreground (active) time across the fleet">
+            <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="AppWindow" Class="size-3.5" />Top applications today</span></TitleContent>
+            <ChildContent>
+                @if (_data.TopApps.Count > 0)
+                {
+                    <RankBars Rows="@_data.TopApps.Select(a => new RankBars.Bar(a.App, Fmt.AppName(a.App), a.Seconds, Plural(a.Devices, "PC")))" Format="v => Fmt.Duration(v)" />
+                }
+                else
+                {
+                    <Empty Title="No application activity yet today" />
+                }
+            </ChildContent>
+        </Card>
+        @if (Session.Can.Web)
+        {
+            <Card Subtitle="By DNS lookups (domain level), background traffic excluded">
+                <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="Globe" Class="size-3.5" />Top websites today</span></TitleContent>
+                <ChildContent>
+                    @if (_data.TopSites?.Count > 0)
+                    {
+                        <RankBars Rows="@_data.TopSites.Select(s => new RankBars.Bar(s.Domain, s.Domain, s.Hits, null, SiteLabel(s)))" Format="@(v => $"{F.Num(v)} lookups")" />
+                    }
+                    else
+                    {
+                        <Empty Title="No web activity yet today" />
+                    }
+                </ChildContent>
+            </Card>
+        }
+        <Card Title="Recent alerts">
+            <Actions><a href="/alerts" class="inline-flex items-center gap-0.5 text-xs text-brand-ink hover:underline">All<Icon Name="ArrowUpRight" Class="size-3" /></a></Actions>
+            <ChildContent>
+                @if (_data.RecentAlerts.Count > 0)
+                {
+                    <ul class="space-y-1">
+                        @foreach (var a in _data.RecentAlerts)
+                        {
+                            <li>
+                                <a href="@($"/devices/{a.DeviceId}")" class="flex items-start gap-3 rounded-lg p-2 hover:bg-panel-2">
+                                    <span class="flex w-[4.75rem] shrink-0 justify-start pt-px"><SeverityBadge Severity="@a.Severity" /></span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-sm font-medium">@a.Title</span>
+                                        <span class="block text-xs text-muted">@a.Hostname · @F.Ago(a.TriggeredAt)</span>
+                                    </span>
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <Empty Icon="Bell" Title="All clear">No open alerts.</Empty>
+                }
+            </ChildContent>
+        </Card>
+    </div>
+
+    <div class="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        @if (Session.Can.Web && _data.Categories?.Count > 0)
+        {
+            <Card Class="xl:col-span-2" Title="Web categories today" Subtitle="Share of DNS lookups by category">
+                <CategoryShare Rows="_data.Categories" />
+            </Card>
+        }
+        <Card Subtitle="Plan staged rollouts in Agent management">
+            <TitleContent><span class="inline-flex items-center gap-1.5"><Icon Name="HardDrive" Class="size-3.5" />Fleet software</span></TitleContent>
+            <ChildContent>
+                <ShareList Heading="Operating systems" Rows="@_data.Os.Select(o => (string.IsNullOrEmpty(o.Name) ? "Unknown" : o.Name, o.Count)).ToList()" />
+                <div class="mt-4"><ShareList Heading="Agent versions" Rows="@_data.Versions.Select(o => (string.IsNullOrEmpty(o.Name) ? "Unknown" : $"v{o.Name}", o.Count)).ToList()" /></div>
+            </ChildContent>
+        </Card>
+    </div>
+}
+
+@code {
+    private static readonly ChartSeries[] DownUp = [new("in", "Download", Series.Down), new("out", "Upload", Series.Up)];
+
+    private DashboardData? _data;
+
+    private string Greeting => F.Now.Hour < 12 ? "Good morning" : F.Now.Hour < 17 ? "Good afternoon" : "Good evening";
+
+    private string Plural(int n, string word) => $"{F.Num(n)} {word}{(n == 1 ? "" : "s")}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        Every(TimeSpan.FromSeconds(20), Load);
+    }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<DashboardData>("/api/dashboard"); }
+        catch (ApiException e) { if (_data is null) Toast.Fail(e, "Could not load the overview"); }
+    }
+
+    private static RenderFragment SiteLabel(TopSite s) => @<span class="inline-flex min-w-0 items-center gap-2"><span class="truncate">@s.Domain</span>@if (s.Category is { } c && c != "Uncategorized")
+        {
+            <Badge>@c</Badge>
+        }</span>;
+}

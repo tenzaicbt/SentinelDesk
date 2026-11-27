@@ -1,0 +1,296 @@
+@page "/devices"
+@inherits ConsolePage
+@inject LiveHub Hub
+
+<PageHeader Title="Devices" Icon="Monitor" Subtitle="@(_data is null ? "Loading…" : $"{Rows.Count} devices · {Rows.Count(r => r.Online)} online")">
+    <Actions>
+        <Btn Icon="Download" OnClick="ExportCsv">Export</Btn>
+        <Btn Icon="RefreshCw" OnClick="Load">Refresh</Btn>
+    </Actions>
+</PageHeader>
+
+<Card Pad="false">
+    <div class="flex flex-wrap items-center gap-2 border-b border-line p-3">
+        <div class="relative min-w-56 flex-1">
+            <Icon Name="Search" Class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+            <input class="@Cls.InputCls("pl-9")" @bind="_search" @bind:event="oninput" placeholder="Filter by hostname, user, IP, serial, model…" />
+        </div>
+        <Dropdown Value="@OrgUnitId" ValueChanged="SetOrgUnit" Options="@BranchOptions" />
+        <Dropdown @bind-Value="_online" Options="@ConnectivityOptions" />
+        <Dropdown Value="@_status" ValueChanged="SetStatus" Options="@StatusOptions" />
+    </div>
+
+    @if (_selected.Count > 0 && Session.Can.Write)
+    {
+        <div class="flex flex-wrap items-center gap-2 border-b border-line bg-brand-soft px-4 py-2 text-sm">
+            <span class="font-medium">@_selected.Count selected</span>
+            <Btn Size="sm" Icon="RefreshCw" OnClick='() => Bulk("refreshInventory")'>Refresh inventory</Btn>
+            <Btn Size="sm" Icon="Download" OnClick='() => Bulk("collectNow")'>Collect now</Btn>
+            <Btn Size="sm" Icon="MessageSquare" OnClick="() => _msgOpen = true">Send message</Btn>
+            @if (Session.Can.Super)
+            {
+                <Btn Size="sm" Variant="danger" Icon="Trash2" OnClick="Remove">Delete</Btn>
+            }
+            <button type="button" class="ml-auto text-xs text-muted hover:text-fg" @onclick="() => _selected.Clear()">Clear</button>
+        </div>
+    }
+
+    @if (_data is null)
+    {
+        <div class="space-y-2 p-4">
+            @for (var i = 0; i < 8; i++)
+            {
+                <Skeleton Class="h-10" />
+            }
+        </div>
+    }
+    else if (Rows.Count == 0)
+    {
+        <Empty Icon="Monitor" Title="No devices match">Adjust the filters, or enroll agents from Agent management.</Empty>
+    }
+    else
+    {
+        var rows = Rows;
+        <DataTable>
+            <thead>
+                <tr>
+                    @if (Session.Can.Write)
+                    {
+                        <th class="w-8"><input type="checkbox" aria-label="Select all" checked="@(_selected.Count == rows.Count)" @onchange="e => SelectAll((bool)e.Value!, rows)" /></th>
+                    }
+                    @Th("hostname", "Device")
+                    @Th("user", "User")
+                    @Th("branch", "Branch", "hidden md:table-cell")
+                    <th class="hidden xl:table-cell">Now</th>
+                    @Th("cpu", "CPU / RAM", "hidden lg:table-cell")
+                    @Th("todayBytes", "Data today")
+                    @Th("lastSeen", "Last seen", "hidden sm:table-cell")
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in rows)
+                {
+                    <tr @key="d.Id" class="@Cls.Join("transition-colors hover:bg-panel-2/60", Cls.If(_selected.Contains(d.Id), "bg-brand-soft/60"))">
+                        @if (Session.Can.Write)
+                        {
+                            <td><input type="checkbox" aria-label="@($"Select {d.Hostname}")" checked="@_selected.Contains(d.Id)" @onchange="e => Toggle(d.Id, (bool)e.Value!)" /></td>
+                        }
+                        <td>
+                            <a href="@($"/devices/{d.Id}")" class="group flex items-center gap-3">
+                                <div class="relative grid size-9 shrink-0 place-items-center rounded-lg bg-panel-2 text-fg-2">
+                                    <Icon Name="@(Cls.IsLaptop(d.Tags, d.Model) ? "Laptop" : "Monitor")" Class="size-4" />
+                                    <OnlineDot Online="d.Online" Class="absolute -right-0.5 -top-0.5 ring-2 ring-panel" />
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5 font-medium group-hover:text-brand-ink">
+                                        @d.Hostname
+                                        @if (d.Status != "active")
+                                        {
+                                            <Badge Tone="@(d.Status == "pending" ? "warning" : "neutral")">@d.Status</Badge>
+                                        }
+                                        @if (d.Alerts > 0)
+                                        {
+                                            <Badge Tone="critical" Icon="Bell">@d.Alerts</Badge>
+                                        }
+                                    </div>
+                                    <div class="truncate text-xs text-muted">@string.Join(" · ", new[] { d.Model, d.Ip }.Where(x => !string.IsNullOrEmpty(x)))</div>
+                                </div>
+                            </a>
+                        </td>
+                        <td class="max-w-44 truncate text-fg-2">@(Fmt.ShortUser(d.User) ?? "—")</td>
+                        <td class="hidden text-fg-2 md:table-cell">
+                            @if (d.Branch is not null)
+                            {
+                                @d.Branch
+                            }
+                            else
+                            {
+                                <span class="text-muted">Unassigned</span>
+                            }
+                        </td>
+                        <td class="hidden max-w-40 truncate text-fg-2 xl:table-cell">
+                            @if (!d.Online)
+                            {
+                                @("—")
+                            }
+                            else if (d.CurrentApp is not null)
+                            {
+                                @Fmt.AppName(d.CurrentApp)
+                            }
+                            else
+                            {
+                                <span class="text-muted">Idle</span>
+                            }
+                        </td>
+                        <td class="hidden w-40 lg:table-cell">
+                            @if (d.Online && d.Cpu is not null)
+                            {
+                                <div class="space-y-1.5"><Meter Value="d.Cpu" /><Meter Value="d.Ram" /></div>
+                            }
+                            else
+                            {
+                                <span class="text-muted">—</span>
+                            }
+                        </td>
+                        <td class="tabular">@Fmt.Bytes(d.TodayBytes)</td>
+                        <td class="hidden text-xs text-muted sm:table-cell">
+                            @if (d.Online)
+                            {
+                                <span class="text-good-ink">Now</span>
+                            }
+                            else
+                            {
+                                @F.Ago(d.LastSeen)
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </DataTable>
+    }
+</Card>
+<MessageModal Open="_msgOpen" OnClose="() => _msgOpen = false" Count="_selected.Count" OnSend='p => Bulk("showMessage", p)' />
+
+@code {
+    [SupplyParameterFromQuery(Name = "orgUnitId")] public string? OrgUnitQuery { get; set; }
+
+    private List<DeviceRow>? _data;
+    private List<OrgUnitRow>? _org;
+    private readonly Dictionary<Guid, LivePresence> _live = [];
+    private readonly HashSet<Guid> _selected = [];
+    private string _search = "", _status = "", _online = "";
+    private string _sortKey = "hostname";
+    private int _sortDir = 1;
+    private bool _msgOpen;
+    private string? _loadedFor;
+
+    private string OrgUnitId => OrgUnitQuery ?? "";
+
+    private static readonly Opt[] ConnectivityOptions = [new("", "Any connectivity"), new("online", "Online"), new("offline", "Offline")];
+    private static readonly Opt[] StatusOptions =
+        [new("", "Active & pending"), new("active", "Active"), new("pending", "Pending approval"), new("disabled", "Disabled"), new("retired", "Retired")];
+    private IEnumerable<Opt> BranchOptions => [new("", "All branches"), .. Cls.Units(_org).Select(o => new Opt(o.Id.ToString(), o.Name))];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _org = await Api.GetAsync<List<OrgUnitRow>>("/api/org"); } catch (ApiException) { }
+        Hub.Presence += OnPresence;
+        OnDispose(() => Hub.Presence -= OnPresence);
+        Own(await Hub.JoinAsync("WatchLive", "UnwatchLive"));
+        Every(TimeSpan.FromSeconds(30), Load);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor != OrgUnitId) { _loadedFor = OrgUnitId; await Load(); }
+    }
+
+    private void OnPresence(LivePresence p) => Ui(() => _live[p.DeviceId] = p);
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<List<DeviceRow>>("/api/devices" + ApiClient.Qs(("orgUnitId", OrgUnitId), ("status", _status))); }
+        catch (ApiException e) { Toast.Fail(e, "Could not load devices"); _data ??= []; }
+    }
+
+    private void SetOrgUnit(string v) => Nav.NavigateTo(v == "" ? "/devices" : $"/devices?orgUnitId={v}");
+
+    private async Task SetStatus(string v) { _status = v; await Load(); }
+
+    private List<DeviceRow> Rows
+    {
+        get
+        {
+            IEnumerable<DeviceRow> r = (_data ?? []).Select(d => _live.TryGetValue(d.Id, out var p)
+                ? d with { Online = true, Cpu = p.Cpu, Ram = p.Ram, CurrentApp = p.CurrentApp, User = p.User ?? d.User, LastSeen = p.LastSeen, TodayBytes = Math.Max(d.TodayBytes, p.TodayIn + p.TodayOut) }
+                : d);
+            var q = _search.Trim();
+            if (q.Length > 0) r = r.Where(d => new[] { d.Hostname, d.User, d.Ip, d.Serial, d.Model, d.Branch }.Any(v => v?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
+            if (_online != "") r = r.Where(d => d.Online == (_online == "online"));
+            IComparer<object?> cmp = Comparer<object?>.Create((a, b) => a switch
+            {
+                null => b is null ? 0 : -1,
+                string s => string.CompareOrdinal(s, b as string ?? ""),
+                IComparable c => b is null ? 1 : c.CompareTo(b),
+                _ => 0,
+            });
+            Func<DeviceRow, object?> key = _sortKey switch
+            {
+                "user" => d => d.User ?? "",
+                "branch" => d => d.Branch ?? "",
+                "todayBytes" => d => d.TodayBytes,
+                "cpu" => d => d.Cpu ?? -1,
+                "lastSeen" => d => d.LastSeen ?? DateTime.MinValue,
+                _ => d => d.Hostname,
+            };
+            return (_sortDir == 1 ? r.OrderBy(key, cmp) : r.OrderByDescending(key, cmp)).ToList();
+        }
+    }
+
+    private void ToggleSort(string key)
+    {
+        _sortDir = _sortKey == key ? -_sortDir : key is "todayBytes" or "cpu" ? -1 : 1;
+        _sortKey = key;
+    }
+
+    private RenderFragment Th(string key, string label, string? cls = null) => @<th class="@cls">
+        <button type="button" @onclick="() => ToggleSort(key)" class="inline-flex items-center gap-1 uppercase hover:text-fg">
+            @label
+            @if (_sortKey == key)
+            {
+                <Icon Name="@(_sortDir == 1 ? "ArrowUp" : "ArrowDown")" Class="size-3" />
+            }
+        </button>
+    </th>;
+
+    private void SelectAll(bool on, List<DeviceRow> rows)
+    {
+        _selected.Clear();
+        if (on) foreach (var r in rows) _selected.Add(r.Id);
+    }
+
+    private void Toggle(Guid id, bool on) { if (on) _selected.Add(id); else _selected.Remove(id); }
+
+    private async Task Bulk(string type, string? payload = null)
+    {
+        try
+        {
+            var r = await Api.PostAsync<QueuedResult>("/api/devices/bulk-command", new { deviceIds = _selected.ToArray(), type, payload });
+            Toast.Success($"Command queued for {r.Queued} devices");
+            _selected.Clear();
+        }
+        catch (ApiException e) { Toast.Fail(e, "Request failed"); }
+    }
+
+    private async Task Remove()
+    {
+        var n = _selected.Count;
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions
+            {
+                Title = $"Delete {n} device{(n == 1 ? "" : "s")}?",
+                Message = "The selected devices and all of their history are permanently deleted. This cannot be undone. Agents still installed on these PCs stop reporting but are not removed - use Remote uninstall for that.",
+                ConfirmLabel = n == 1 ? "Delete device" : $"Delete {n} devices", Danger = true,
+            })) return;
+        try
+        {
+            var r = await Api.PostAsync<DeletedResult>("/api/devices/delete", new { deviceIds = _selected.ToArray() });
+            Toast.Success($"{r.Deleted} device{(r.Deleted == 1 ? "" : "s")} deleted");
+            _selected.Clear();
+            await Load();
+        }
+        catch (ApiException e) { Toast.Fail(e, "Delete failed"); }
+    }
+
+    private async Task ExportCsv()
+    {
+        static string Q(object? v) => $"\"{(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "").Replace("\"", "\"\"")}\"";
+        var head = "Hostname,User,Branch,IP,OS,Model,Serial,Agent,Online,Last seen,Today MB";
+        var lines = Rows.Select(d => string.Join(",", new object?[]
+        {
+            d.Hostname, d.User, d.Branch, d.Ip, $"{d.Os} {d.OsBuild}", d.Model, d.Serial, d.AgentVersion, d.Online ? "true" : "false",
+            d.LastSeen?.ToString("o"), (d.TodayBytes / 1048576.0).ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+        }.Select(Q)));
+        var csv = "﻿" + string.Join("\n", lines.Prepend(head));
+        await SaveFileAsync("devices.csv", "text/csv", System.Text.Encoding.UTF8.GetBytes(csv));
+    }
+}

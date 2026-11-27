@@ -1,0 +1,45 @@
+@* Share of DNS lookups by category; "Uncategorized" and the remainder stay neutral so real categories stand out. *@
+<div class="flex h-2.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="Share of lookups by category">
+    @foreach (var p in Parts)
+    {
+        <div title="@($"{p.Label}: {F.Num(p.Value)} ({Pct(p.Value)})")" class="h-full first:rounded-l-full last:rounded-r-full"
+             style="width:@(Cls.Css(p.Value * 100.0 / Total))%;background:@p.Color;opacity:@(p.Label == "Uncategorized" ? "0.45" : "1")"></div>
+    }
+</div>
+<ul class="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+    @foreach (var p in Parts)
+    {
+        <li class="flex items-center gap-2 text-[13px]">
+            <span class="inline-block size-2.5 shrink-0 rounded-[3px]" style="background:@p.Color;opacity:@(p.Label == "Uncategorized" ? "0.45" : "1")"></span>
+            <span class="min-w-0 flex-1 truncate text-fg">@p.Label</span>
+            <span class="tabular text-fg-2">@F.Num(p.Value)</span>
+            <span class="w-10 text-right tabular text-muted">@Pct(p.Value)</span>
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public List<CategoryHits> Rows { get; set; } = [];
+
+    private static readonly string[] Colors = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-7)"];
+    private const string Neutral = "var(--axis)";
+
+    private sealed record Part(string Label, long Value, string Color);
+
+    private double Total => Math.Max(1, Rows.Sum(r => r.Hits));
+    private string Pct(long v) => $"{Math.Round(v * 100.0 / Total, MidpointRounding.AwayFromZero)}%";
+
+    private List<Part> Parts
+    {
+        get
+        {
+            var named = Rows.Where(r => r.Category != "Uncategorized").ToList();
+            var parts = named.Take(Colors.Length).Select((r, i) => new Part(r.Category, r.Hits, Colors[i])).ToList();
+            var rest = named.Skip(Colors.Length).Sum(r => r.Hits);
+            var unc = Rows.FirstOrDefault(r => r.Category == "Uncategorized")?.Hits ?? 0;
+            if (rest > 0) parts.Add(new Part("Other", rest, Neutral));
+            if (unc > 0) parts.Add(new Part("Uncategorized", unc, Neutral));
+            return parts;
+        }
+    }
+}

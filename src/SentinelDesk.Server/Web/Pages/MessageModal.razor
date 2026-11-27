@@ -1,0 +1,38 @@
+@* Tray notification to one or more devices. *@
+<Modal Open="Open" OnClose="OnClose" Title="@($"Send tray notification{(Count > 1 ? $" to {Count} devices" : "")}")">
+    <ChildContent>
+        <div class="space-y-3">
+            <Field Label="Title"><input class="@Cls.Input" @bind="_title" @bind:event="oninput" maxlength="60" /></Field>
+            <Field Label="Message" Hint="Shown as a Windows notification from the SentinelDesk tray icon">
+                <textarea @bind="_body" @bind:event="oninput" rows="4" maxlength="250" class="@Cls.TextArea"></textarea>
+            </Field>
+        </div>
+    </ChildContent>
+    <Footer>
+        <Btn OnClick="OnClose">Cancel</Btn>
+        <Btn Variant="primary" Loading="_busy" Disabled="string.IsNullOrWhiteSpace(_body)" OnClick="Send">Send</Btn>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public int Count { get; set; } = 1;
+    /// <summary>Called with the command payload (JSON {title, body}).</summary>
+    [Parameter] public Func<string, Task> OnSend { get; set; } = _ => Task.CompletedTask;
+
+    private string _title = "SentinelDesk", _body = "";
+    private bool _busy;
+
+    private async Task Send()
+    {
+        _busy = true;
+        try
+        {
+            await OnSend(Json.Serialize(new { title = _title, body = _body }));
+            await OnClose.InvokeAsync();
+            _body = "";
+        }
+        finally { _busy = false; }
+    }
+}

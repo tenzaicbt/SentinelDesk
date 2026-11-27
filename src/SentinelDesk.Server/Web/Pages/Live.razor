@@ -1,0 +1,137 @@
+@page "/live"
+@inherits ConsolePage
+@inject LiveHub Hub
+
+<PageHeader Title="Live view" Icon="Radio">
+    <SubtitleContent><span class="inline-flex items-center gap-2"><OnlineDot Online="Hub.Connected" />@(Hub.Connected ? "Streaming heartbeats in real time" : "Reconnecting…")</span></SubtitleContent>
+</PageHeader>
+
+@{
+    var rows = Rows;
+    var totalIn = rows.Sum(r => r.P.NetInBps);
+    var totalOut = rows.Sum(r => r.P.NetOutBps);
+    var active = rows.Count(r => !r.P.Idle && !r.P.Locked);
+}
+<div class="mb-4 grid gap-3 sm:grid-cols-3">
+    <Card><p class="text-sm text-muted">Online now</p><p class="mt-1 text-2xl font-semibold tabular">@rows.Count</p><p class="text-xs text-muted">@active actively in use</p></Card>
+    <Card><p class="text-sm text-muted">Fleet download</p><p class="mt-1 text-2xl font-semibold tabular text-fg">@Fmt.Bps(totalIn)</p><p class="text-xs text-muted">sum of current rates</p></Card>
+    <Card><p class="text-sm text-muted">Fleet upload</p><p class="mt-1 text-2xl font-semibold tabular">@Fmt.Bps(totalOut)</p><p class="text-xs text-muted">sum of current rates</p></Card>
+</div>
+
+<div class="mb-4 flex flex-wrap items-center gap-2">
+    <div class="relative max-w-sm flex-1">
+        <Icon Name="Search" Class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+        <input class="@Cls.InputCls("pl-9")" @bind="_q" @bind:event="oninput" placeholder="Filter devices…" />
+    </div>
+    <Segmented TValue="string" @bind-Value="_sort" Options="@([("net", "Bandwidth"), ("cpu", "CPU"), ("name", "Name")])" />
+</div>
+
+@if (rows.Count == 0)
+{
+    <Card><Empty Icon="Wifi" Title="No devices online">Devices appear here as soon as their agent sends a heartbeat.</Empty></Card>
+}
+else
+{
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        @foreach (var r in rows)
+        {
+            var p = r.P;
+            <a @key="p.DeviceId" href="@($"/devices/{p.DeviceId}")" class="group rounded-xl border border-line bg-panel p-4 shadow-card transition-colors hover:bg-panel-2/50">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 font-medium group-hover:underline"><OnlineDot Online="true" />@p.Hostname</div>
+                        <div class="truncate text-xs text-muted">@Fmt.ShortUser(p.User) · @(r.Branch ?? "Unassigned")</div>
+                    </div>
+                    @if (p.Locked)
+                    {
+                        <Badge Icon="Lock">Locked</Badge>
+                    }
+                    else if (p.Idle)
+                    {
+                        <Badge Icon="Moon">Idle</Badge>
+                    }
+                    else if (p.ConnectionType is not null)
+                    {
+                        <Badge>@p.ConnectionType</Badge>
+                    }
+                </div>
+                <div class="@Cls.Join("mt-3 truncate rounded-md bg-panel-2 px-2.5 py-1.5 text-xs", p.CurrentApp is not null ? "text-fg" : "text-muted")" title="@p.CurrentTitle">
+                    @if (p.CurrentApp is not null)
+                    {
+                        <span class="font-medium">@Fmt.AppName(p.CurrentApp)</span>
+                        @if (p.CurrentTitle is not null)
+                        {
+                            <span class="text-muted"> — @p.CurrentTitle</span>
+                        }
+                    }
+                    else
+                    {
+                        @("No foreground activity")
+                    }
+                </div>
+                <div class="mt-3 flex items-end justify-between gap-3">
+                    <div class="space-y-0.5 text-xs tabular">
+                        <div class="flex items-center gap-1 text-fg-2"><Icon Name="ArrowDown" Class="size-3 text-s1" />@Fmt.Bps(p.NetInBps)</div>
+                        <div class="flex items-center gap-1 text-fg-2"><Icon Name="ArrowUp" Class="size-3 text-s2" />@Fmt.Bps(p.NetOutBps)</div>
+                    </div>
+                    <div class="w-28"><Sparkline Values="r.Hist" /></div>
+                </div>
+                <div class="mt-3 grid grid-cols-2 gap-3">
+                    <Meter Label="CPU" Value="p.Cpu" />
+                    <Meter Label="RAM" Value="p.Ram" />
+                </div>
+                <div class="mt-2 text-[11px] text-muted">Today @Fmt.Bytes(p.TodayIn + p.TodayOut)</div>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    private sealed record Entry(LivePresence P, string? Branch, List<double> Hist);
+
+    private readonly Dictionary<Guid, Entry> _map = [];
+    private string _q = "", _sort = "net";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can.Live) { Nav.NavigateTo("/", replace: true); return; }
+        Hub.Presence += OnPresence;
+        Hub.StateChanged += Refresh;
+        OnDispose(() => { Hub.Presence -= OnPresence; Hub.StateChanged -= Refresh; });
+        try
+        {
+            foreach (var r in await Api.GetAsync<List<LiveRow>>("/api/live"))
+                _map[r.Presence.DeviceId] = new Entry(r.Presence, r.Branch, _map.GetValueOrDefault(r.Presence.DeviceId)?.Hist ?? []);
+        }
+        catch (ApiException e) { Toast.Fail(e, "Could not load live devices"); }
+        Own(await Hub.JoinAsync("WatchLive", "UnwatchLive"));
+        // age out devices that stop reporting
+        Every(TimeSpan.FromSeconds(5), () => Task.CompletedTask);
+    }
+
+    private void Refresh() => Ui(() => { });
+
+    private void OnPresence(LivePresence p) => Ui(() =>
+    {
+        var prev = _map.GetValueOrDefault(p.DeviceId);
+        var hist = (prev?.Hist ?? []).Append(p.NetInBps + p.NetOutBps).TakeLast(30).ToList();
+        _map[p.DeviceId] = new Entry(p, prev?.Branch, hist);
+    });
+
+    private List<Entry> Rows
+    {
+        get
+        {
+            var now = DateTime.UtcNow;
+            var r = _map.Values.Where(x => now - x.P.LastSeen < TimeSpan.FromSeconds(150));
+            var s = _q.Trim();
+            if (s.Length > 0) r = r.Where(x => new[] { x.P.Hostname, x.P.User, x.Branch, x.P.CurrentApp }.Any(v => v?.Contains(s, StringComparison.OrdinalIgnoreCase) == true));
+            return (_sort switch
+            {
+                "name" => r.OrderBy(x => x.P.Hostname, StringComparer.CurrentCultureIgnoreCase),
+                "cpu" => r.OrderByDescending(x => x.P.Cpu),
+                _ => r.OrderByDescending(x => x.P.NetInBps + x.P.NetOutBps),
+            }).ToList();
+        }
+    }
+}

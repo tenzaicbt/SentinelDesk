@@ -15,13 +15,16 @@ public sealed class LiveStreamRegistry(IConfiguration config, ServerSettings set
     private readonly Dictionary<string, HashSet<Guid>> _byConnection = new();
 
     /// <summary>Refresh rates an administrator can choose in the console (0 = off: the device page uses heartbeats only).</summary>
-    public static readonly int[] Choices = [0, 500, 1000, 2000, 5000];
+    public static readonly int[] Choices = [0, 500, 1000, 2000, 5000, 30_000, 60_000, 120_000];
 
-    /// <summary>Default when nothing was chosen in the console: Live:StreamIntervalMs (250–5000, default 500).</summary>
-    public int DefaultIntervalMs { get; } = Math.Clamp(config.GetValue("Live:StreamIntervalMs", 500), 250, 5000);
+    /// <summary>Slowest rate (every 2 minutes). Agents before 1.2.3 accept at most 5 s and stream every 5 s instead.</summary>
+    public const int MaxIntervalMs = 120_000;
+
+    /// <summary>Default when nothing was chosen in the console: Live:StreamIntervalMs (250 ms to 2 minutes, default 500).</summary>
+    public int DefaultIntervalMs { get; } = Math.Clamp(config.GetValue("Live:StreamIntervalMs", 500), 250, MaxIntervalMs);
 
     /// <summary>Sample interval the agent is asked to stream at, as set in the console (0 = live stream off).</summary>
-    public int IntervalMs => settings.Current.LiveStreamIntervalMs is { } v ? (v == 0 ? 0 : Math.Clamp(v, 250, 5000)) : DefaultIntervalMs;
+    public int IntervalMs => settings.Current.LiveStreamIntervalMs is { } v ? (v == 0 ? 0 : Math.Clamp(v, 250, MaxIntervalMs)) : DefaultIntervalMs;
 
     public bool Enabled => IntervalMs > 0;
 

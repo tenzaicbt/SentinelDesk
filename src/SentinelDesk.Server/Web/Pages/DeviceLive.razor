@@ -3,7 +3,7 @@
     var todayIn = Math.Max(D.Today.BytesIn, p?.TodayIn ?? 0);
     var todayOut = Math.Max(D.Today.BytesOut, p?.TodayOut ?? 0);
     var subtitle = p is null ? $"Device offline · last seen {F.Ago(D.LastSeenAt)}"
-        : Stream is not null ? $"Streaming live · a new sample every {Stream.IntervalMs} ms"
+        : Stream is not null ? $"Streaming live · a new sample every {Fmt.Interval(Stream.IntervalMs)}"
         : LiveOff ? $"Updated {F.Ago(p.LastSeen)} · live samples are off (Agent management → Live data), updating with heartbeats"
         : $"Updated {F.Ago(p.LastSeen)} · {(D.LiveChannel ? "live channel connected" : "heartbeat polling")}";
 }

@@ -47,6 +47,7 @@ else
                 <li class="flex gap-2"><Icon Name="Radio" Class="mt-0.5 size-4 shrink-0 text-muted" />Live samples are sent only while a device page is open in the console, and stop on their own when it is closed.</li>
                 <li class="flex gap-2"><Icon Name="Monitor" Class="mt-0.5 size-4 shrink-0 text-muted" />Each sample is about @SampleBytes bytes, sent once by the computer and once to each person viewing it.</li>
                 <li class="flex gap-2"><Icon Name="Activity" Class="mt-0.5 size-4 shrink-0 text-muted" />Heartbeats (every 30 seconds by default) and the Live view page are not affected: they work at every setting, including Off.</li>
+                <li class="flex gap-2"><Icon Name="Clock" Class="mt-0.5 size-4 shrink-0 text-muted" />The 30-second, 1-minute and 2-minute rates need agent version 1.2.3 or later. Older agents send every 5 seconds instead.</li>
             </ul>
         </Card>
     </div>
@@ -72,7 +73,9 @@ else
         0 => "Off",
         < 1000 => $"Every {ms / 1000.0:0.#} seconds",
         1000 => "Every second",
-        _ => $"Every {ms / 1000} seconds",
+        < 60_000 => $"Every {ms / 1000} seconds",
+        60_000 => "Every minute",
+        _ => $"Every {ms / 60_000} minutes",
     };
 
     private static string Bandwidth(int ms)
@@ -88,7 +91,9 @@ else
         <= 500 => "Smoothest live charts",
         <= 1000 => "Smooth, half the traffic",
         <= 2000 => "Good for most branch links",
-        _ => "Slow or metered links",
+        <= 5000 => "Slow or metered links",
+        <= 30_000 => "Close to the heartbeat rate",
+        _ => "Very little traffic; charts update slowly",
     };
 
     private async Task Set(int ms)

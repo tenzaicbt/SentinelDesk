@@ -20,18 +20,29 @@ public sealed class LiveStreamer(AgentState state, ILogger<LiveStreamer> log)
     private Func<LiveSample, Task>? _send;
     private int _intervalMs = 500;
     private long _leaseUntil; // Environment.TickCount64
+    private TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private ulong _prevIdle, _prevKernel, _prevUser;
     private readonly Dictionary<string, (long In, long Out)> _prevNic = new();
+
+    /// <summary>Slowest rate an administrator can choose in the console (every 2 minutes).</summary>
+    public const int MaxIntervalMs = 120_000;
 
     public void Start(int intervalMs, int leaseSec, Func<LiveSample, Task> send)
     {
         lock (_gate)
         {
-            _intervalMs = Math.Clamp(intervalMs, 250, 5000);
+            var interval = Math.Clamp(intervalMs, 250, MaxIntervalMs);
+            var changed = interval != _intervalMs;
+            _intervalMs = interval;
             _leaseUntil = Environment.TickCount64 + Math.Clamp(leaseSec, 10, 300) * 1000L;
             _send = send;
-            if (_cts is not null) return; // already running: this was a lease renewal / interval change
+            if (_cts is not null)
+            {
+                // already running: a lease renewal, or a new rate - don't sit out a long wait at the old rate
+                if (changed) _wake.TrySetResult();
+                return;
+            }
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
             _ = Task.Run(() => RunAsync(ct), ct);
@@ -63,8 +74,17 @@ public sealed class LiveStreamer(AgentState state, ILogger<LiveStreamer> log)
             {
                 int interval;
                 Func<LiveSample, Task>? send;
-                lock (_gate) { interval = _intervalMs; send = _send; }
-                await Task.Delay(interval, ct);
+                Task wake;
+                lock (_gate) { interval = _intervalMs; send = _send; wake = _wake.Task; }
+                // wait one interval, or less when the console picks a new rate (then send a sample right away)
+                await Task.WhenAny(Task.Delay(interval, ct), wake);
+                ct.ThrowIfCancellationRequested();
+                if (wake.IsCompleted)
+                    lock (_gate)
+                    {
+                        interval = _intervalMs;
+                        _wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    }
 
                 if (Environment.TickCount64 > Interlocked.Read(ref _leaseUntil)) { Stop(); return; }
 

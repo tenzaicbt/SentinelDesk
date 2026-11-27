@@ -2,7 +2,7 @@
   <!-- Shared assembly metadata for every SentinelDesk project (shown in each .exe's Properties > Details). -->
   <PropertyGroup>
     <!-- One version for every SentinelDesk program (agent, guard, tray, setup, server) -->
-    <Version>1.2.2</Version>
+    <Version>1.2.3</Version>
     <Authors>Yohan Koshala</Authors>
     <Company>Yohan Koshala (LordeFX)</Company>
     <Copyright>© 2026 Yohan Koshala. All rights reserved. www.lordefx.com</Copyright>

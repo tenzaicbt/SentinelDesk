@@ -103,7 +103,8 @@ else
     private IAsyncDisposable? _watch;
     private bool _liveOff;
 
-    private bool Streaming(DateTime now) => now - _lastSampleAt < TimeSpan.FromSeconds(3);
+    /// <summary>A sample arrived within the expected time: 3 s, or two intervals plus 2 s at slow rates.</summary>
+    private bool Streaming(DateTime now) => now - _lastSampleAt < TimeSpan.FromMilliseconds(Math.Max(3000, (_stream?.IntervalMs ?? 0) * 2 + 2000));
     private bool Online => _presence is not null && DateTime.UtcNow - _presence.LastSeen < TimeSpan.FromSeconds(150);
 
     private IEnumerable<TabItem> TabItems =>

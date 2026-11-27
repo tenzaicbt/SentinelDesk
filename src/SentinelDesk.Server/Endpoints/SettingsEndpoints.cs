@@ -25,7 +25,7 @@ public static class SettingsEndpoints
             AccessScope scope, AuditService audit, ILoggerFactory logs) =>
         {
             if (!LiveStreamRegistry.Choices.Contains(r.IntervalMs))
-                return Results.Problem("Choose Off, 0.5, 1, 2 or 5 seconds", statusCode: 400);
+                return Results.Problem("Choose Off, 0.5, 1, 2, 5 or 30 seconds, 1 or 2 minutes", statusCode: 400);
             var before = streams.IntervalMs;
             settings.Update(s => { s.LiveStreamIntervalMs = r.IntervalMs; s.LiveStreamChangedAt = DateTime.UtcNow; s.LiveStreamChangedBy = scope.Username; });
             await audit.LogAsync("settings.liveRefreshRate", r.IntervalMs == 0 ? "off" : $"{r.IntervalMs} ms", $"was {(before == 0 ? "off" : $"{before} ms")}");

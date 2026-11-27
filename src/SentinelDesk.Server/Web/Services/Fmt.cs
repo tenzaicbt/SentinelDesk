@@ -105,4 +105,7 @@ public sealed class Fmt
     public static string? ShortUser(string? user) => user?.Split('\\')[^1];
 
     public static string Plural(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
+
+    /// <summary>A sample interval for display: "500 ms", "2 s", "1 min".</summary>
+    public static string Interval(int ms) => ms < 1000 ? $"{ms} ms" : ms < 60_000 ? $"{ms / 1000.0:0.#} s" : $"{ms / 60_000.0:0.#} min";
 }

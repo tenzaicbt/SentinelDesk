@@ -26,3 +26,6 @@ data/
 
 # public release package (separate repository)
 Git/
+
+# local copies of release builds (published to the public repo)
+releases/

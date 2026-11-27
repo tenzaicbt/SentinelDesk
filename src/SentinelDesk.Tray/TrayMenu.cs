@@ -37,7 +37,7 @@ public sealed class TrayMenu : ContextMenuStrip
         var item = new ToolStripMenuItem(text) { Padding = new Padding(0, (int)(6 * s), (int)((ModernRenderer.TextLeft + 8) * s), (int)(6 * s)), Margin = new Padding(0, 1, 0, 1) };
         item.Click += (_, _) => onClick();
         _glyphs.Add((item, glyph));
-        item.Tag = Glyphs.Render(glyph, _renderer.Palette.Icon, DeviceDpi);
+        item.Tag = new ItemIcons(Glyphs.Render(glyph, _renderer.Palette.Icon, DeviceDpi), Glyphs.Render(glyph, _renderer.Palette.Accent, DeviceDpi));
         Items.Add(item);
         return item;
     }
@@ -56,20 +56,20 @@ public sealed class TrayMenu : ContextMenuStrip
     {
         if (e.Category is UserPreferenceCategory.General or UserPreferenceCategory.Color or UserPreferenceCategory.VisualStyle)
         {
-            if (InvokeRequired) BeginInvoke(ApplyTheme); else ApplyTheme();
+            if (InvokeRequired) BeginInvoke(() => ApplyTheme()); else ApplyTheme();
         }
     }
 
-    private void ApplyTheme()
+    internal void ApplyTheme(MenuPalette? palette = null)
     {
-        _renderer.Palette = MenuPalette.Current();
+        _renderer.Palette = palette ?? MenuPalette.Current();
         _header.Palette = _renderer.Palette;
         BackColor = _renderer.Palette.Back;
         ForeColor = _renderer.Palette.Text;
         foreach (var (item, glyph) in _glyphs)
         {
-            var old = item.Tag as Image;
-            item.Tag = Glyphs.Render(glyph, _renderer.Palette.Icon, DeviceDpi);
+            var old = item.Tag as ItemIcons;
+            item.Tag = new ItemIcons(Glyphs.Render(glyph, _renderer.Palette.Icon, DeviceDpi), Glyphs.Render(glyph, _renderer.Palette.Accent, DeviceDpi));
             old?.Dispose();
         }
         Invalidate();
@@ -95,14 +95,22 @@ public sealed class TrayMenu : ContextMenuStrip
     }
 }
 
-/// <summary>Light / dark colours of the menu (SentinelDesk palette: neutral greys, orange accent).</summary>
-public sealed record MenuPalette(bool Dark, Color Back, Color Border, Color Text, Color Muted, Color Icon, Color Hover, Color Pressed, Color Separator)
+/// <summary>
+/// Light / dark colours of the menu, taken from the web console's design tokens: panel, line, text and muted greys,
+/// and the brand orange. The hovered item looks like the console sidebar's active item (orange tint, orange icon).
+/// </summary>
+public sealed record MenuPalette(bool Dark, Color Back, Color Border, Color Text, Color Muted, Color Icon, Color Hover, Color Pressed, Color Separator,
+    Color Accent, Color Chip)
 {
     public static MenuPalette Current() => StatusForm.IsDarkMode()
-        ? new(true, Color.FromArgb(0x20, 0x20, 0x22), Color.FromArgb(0x3A, 0x3A, 0x3E), Color.FromArgb(0xFA, 0xFA, 0xFA), Color.FromArgb(0xA1, 0xA1, 0xAA),
-              Color.FromArgb(0xD4, 0xD4, 0xD8), Color.FromArgb(0x2F, 0x2F, 0x33), Color.FromArgb(0x38, 0x38, 0x3C), Color.FromArgb(0x33, 0x33, 0x37))
-        : new(false, Color.White, Color.FromArgb(0xE4, 0xE4, 0xE7), Color.FromArgb(0x17, 0x17, 0x17), Color.FromArgb(0x71, 0x71, 0x7A),
-              Color.FromArgb(0x52, 0x52, 0x5B), Color.FromArgb(0xF4, 0xF4, 0xF5), Color.FromArgb(0xE9, 0xE9, 0xEC), Color.FromArgb(0xEC, 0xEC, 0xEE));
+        // dark: panel #171717, line white/9 %, fg #fafafa, muted #a1a1aa, brand #ff7a1a, brand-soft = brand 14 % on the panel
+        ? new(true, Color.FromArgb(0x17, 0x17, 0x17), Color.FromArgb(0x2E, 0x2E, 0x2E), Color.FromArgb(0xFA, 0xFA, 0xFA), Color.FromArgb(0xA1, 0xA1, 0xAA),
+              Color.FromArgb(0xD4, 0xD4, 0xD8), Color.FromArgb(0x37, 0x25, 0x17), Color.FromArgb(0x45, 0x2C, 0x18), Color.FromArgb(0x2A, 0x2A, 0x2A),
+              Color.FromArgb(0xFF, 0x7A, 0x1A), Color.FromArgb(0x23, 0x23, 0x25))
+        // light: panel #ffffff, line #e7e7e9, fg #171717, muted #71717a, brand #ff6a00, brand-soft = brand 10 % on white
+        : new(false, Color.White, Color.FromArgb(0xE7, 0xE7, 0xE9), Color.FromArgb(0x17, 0x17, 0x17), Color.FromArgb(0x71, 0x71, 0x7A),
+              Color.FromArgb(0x3F, 0x3F, 0x46), Color.FromArgb(0xFF, 0xF0, 0xE6), Color.FromArgb(0xFF, 0xE4, 0xD1), Color.FromArgb(0xE7, 0xE7, 0xE9),
+              Color.FromArgb(0xFF, 0x6A, 0x00), Color.FromArgb(0xF4, 0xF4, 0xF5));
 }
 
 /// <summary>Paints the menu: flat background, rounded hover highlight, thin separators, no image-margin band.</summary>
@@ -137,9 +145,10 @@ internal sealed class ModernRenderer : ToolStripRenderer
             using var b = new SolidBrush(e.Item.Pressed ? Palette.Pressed : Palette.Hover);
             g.FillPath(b, path);
         }
-        // the item's icon (glyph bitmap in Tag), in the same column as the header logo
-        if (e.Item.Tag is Image icon)
+        // the item's icon (glyph bitmaps in Tag), in the same column as the header logo; orange while hovered
+        if (e.Item.Tag is ItemIcons icons)
         {
+            var icon = e.Item.Selected && e.Item.Enabled ? icons.Hover : icons.Normal;
             var x = (int)(10 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f);
             g.DrawImage(icon, x, (e.Item.Height - icon.Height) / 2, icon.Width, icon.Height);
         }
@@ -188,7 +197,13 @@ internal sealed class ModernRenderer : ToolStripRenderer
     }
 }
 
-/// <summary>Non-clickable menu header: logo, product name and the agent's status with a coloured dot.</summary>
+/// <summary>An item's icon in its normal and hovered colours.</summary>
+internal sealed record ItemIcons(Bitmap Normal, Bitmap Hover) : IDisposable
+{
+    public void Dispose() { Normal.Dispose(); Hover.Dispose(); }
+}
+
+/// <summary>Non-clickable menu header, like the console sidebar's: logo, wordmark, "ENDPOINT METRICS", and the agent's status.</summary>
 internal sealed class MenuHeader : ToolStripItem
 {
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -204,7 +219,7 @@ internal sealed class MenuHeader : ToolStripItem
 
     private float Scale => (Owner?.DeviceDpi ?? 96) / 96f;
 
-    public override Size GetPreferredSize(Size constrainingSize) => new((int)(270 * Scale), (int)(52 * Scale));
+    public override Size GetPreferredSize(Size constrainingSize) => new((int)(280 * Scale), (int)(76 * Scale));
 
     protected override void OnOwnerChanged(EventArgs e)
     {
@@ -218,21 +233,41 @@ internal sealed class MenuHeader : ToolStripItem
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         var s = Scale;
-        int icon = (int)(28 * s), x = (int)(6 * s), y = (Height - icon) / 2;   // centred over the item icon column
+        int icon = (int)(30 * s), x = (int)(5 * s), y = (int)(7 * s);   // centred over the item icon column
         using (var logo = Icons.LoadApp(icon)) g.DrawIcon(logo, new Rectangle(x, y, icon, icon));
 
-        var tx = (int)(ModernRenderer.TextLeft * s);   // same column as the item text
-        using var title = new Font("Segoe UI Semibold", 10.5f);
+        // wordmark: "Sentinel" in ink, "Desk" in brand orange, extra bold - as in the console sidebar
+        var tx = (int)(ModernRenderer.TextLeft * s);
+        using var title = new Font("Segoe UI Black", 11f);
+        using var tag = new Font("Segoe UI Semibold", 6.75f);
         using var small = new Font("Segoe UI", 8.75f);
-        TextRenderer.DrawText(g, "Sentinel", title, new Point(tx, (int)(7 * s)), Palette.Text, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, "Sentinel", title, new Point(tx, (int)(5 * s)), Palette.Text, TextFormatFlags.NoPadding);
         var w = TextRenderer.MeasureText(g, "Sentinel", title, Size.Empty, TextFormatFlags.NoPadding).Width;
-        TextRenderer.DrawText(g, "Desk", title, new Point(tx + w, (int)(7 * s)), Brand.Orange, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, "Desk", title, new Point(tx + w, (int)(5 * s)), Palette.Accent, TextFormatFlags.NoPadding);
+        DrawSpaced(g, "ENDPOINT METRICS", tag, Palette.Muted, tx, (int)(26 * s), 1.4f * s);
 
-        var dot = (int)(8 * s);
-        var dy = (int)(30 * s);
-        using (var b = new SolidBrush(Dot)) g.FillEllipse(b, tx, dy + (int)(3 * s), dot, dot);
-        TextRenderer.DrawText(g, Status, small, new Rectangle(tx + dot + (int)(6 * s), dy - (int)(1 * s), Width - tx - dot - (int)(14 * s), (int)(18 * s)),
-            Palette.Muted, TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        // status row: rounded chip with a coloured dot, like the console's "Live updates connected"
+        var chip = new Rectangle(x, (int)(47 * s), Width - x - (int)(8 * s), (int)(23 * s));
+        using (var path = ModernRenderer.RoundRect(chip, (int)(6 * s)))
+        using (var b = new SolidBrush(Palette.Chip))
+            g.FillPath(b, path);
+        var dot = (int)(7 * s);
+        var dx = chip.X + (int)(10 * s);
+        using (var b = new SolidBrush(Dot)) g.FillEllipse(b, dx, chip.Y + (chip.Height - dot) / 2, dot, dot);
+        TextRenderer.DrawText(g, Status, small, new Rectangle(dx + dot + (int)(8 * s), chip.Y, chip.Right - dx - dot - (int)(16 * s), chip.Height),
+            Palette.Text, TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+    }
+
+    /// <summary>Upper-case label with letter spacing (the console's tracking-[0.2em]).</summary>
+    private static void DrawSpaced(Graphics g, string text, Font font, Color color, int x, int y, float spacing)
+    {
+        float cx = x;
+        foreach (var ch in text)
+        {
+            var t = ch.ToString();
+            TextRenderer.DrawText(g, t, font, new Point((int)cx, y), color, TextFormatFlags.NoPadding);
+            cx += TextRenderer.MeasureText(g, t, font, Size.Empty, TextFormatFlags.NoPadding).Width + spacing;
+        }
     }
 }
 

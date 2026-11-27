@@ -1,0 +1,129 @@
+@* Device header actions: approve, collect, refresh inventory, message, and the "more" menu. *@
+<div class="flex flex-wrap items-center gap-2">
+    @if (D.Status == "pending")
+    {
+        <Btn Variant="primary" Icon="CheckCircle2" OnClick='() => State("approve")'>Approve</Btn>
+    }
+    <Btn Icon="RefreshCw" OnClick='() => Cmd("collectNow")'>Collect now</Btn>
+    <Btn Icon="Package" OnClick='() => Cmd("refreshInventory")'>Refresh inventory</Btn>
+    <Btn Icon="MessageSquare" OnClick="() => _msg = true">Message</Btn>
+    <div class="relative">
+        <Btn Icon="MoreHorizontal" OnClick="() => _menu = !_menu" AriaLabel="More actions" />
+        @if (_menu)
+        {
+            <div class="absolute right-0 top-9 z-20 w-60 rounded-lg border border-line bg-panel p-1 shadow-md animate-rise" @onmouseleave="() => _menu = false">
+                @Item("ListTree", "Move to branch…", () => { _move = true; _menu = false; return Task.CompletedTask; })
+                @Item("KeyRound", "Generate one-time uninstall code", CreateUninstallCode)
+                @Item("KeyRound", "Create unlock code (pause blocking, works offline)", () => { _menu = false; _unlock = true; return Task.CompletedTask; })
+                @if (D.Status == "active")
+                {
+                    @Item("Ban", "Disable device", () => State("disable", $"Disable {D.Hostname}?", "The device will stop being able to upload data until it is re-enabled.", "Disable device"))
+                }
+                else if (D.Status == "disabled")
+                {
+                    @Item("CheckCircle2", "Re-enable device", () => State("enable"))
+                }
+                @Item("XCircle", "Retire device", () => State("retire", $"Retire {D.Hostname}?", "The device is hidden from lists and its certificate is rejected. Its history is kept.", "Retire device"))
+                @if (Session.Can.Super)
+                {
+                    @Item("Trash2", "Remote uninstall", Uninstall, danger: true)
+                    @Item("Trash2", "Delete device", Delete, danger: true)
+                }
+            </div>
+        }
+    </div>
+    <MessageModal Open="_msg" OnClose="() => _msg = false" Count="1" OnSend='p => Cmd("showMessage", p)' />
+    <MoveModal Open="_move" OnClose="() => _move = false" D="D" OnSaved="OnChanged" />
+    <UnlockCodeDialog DeviceId="D.Id" Hostname="@D.Hostname" Open="_unlock" OnClose="() => _unlock = false" />
+    <Modal Open="_code is not null" OnClose="() => _code = null" Title="One-time uninstall code">
+        <ChildContent>
+            <div class="space-y-3 text-sm">
+                <p class="text-fg-2">Give this code to the on-site technician. It works only on <b>@D.Hostname</b>, together with local administrator rights, until @F.DateTimeText(_code?.ExpiresUtc).</p>
+                <div class="rounded-lg bg-panel-2 py-3 text-center font-mono text-2xl font-semibold tracking-[0.2em]">@_code?.Code</div>
+                <Callout Tone="warning">The code is pushed to the device as a signed command; the device must be online (or check in) before it can be used.</Callout>
+            </div>
+        </ChildContent>
+        <Footer><Btn Variant="primary" OnClick="() => _code = null">Done</Btn></Footer>
+    </Modal>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DeviceDetail D { get; set; } = default!;
+    [Parameter] public bool Online { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _menu, _msg, _move, _unlock;
+    private UninstallCode? _code;
+
+    private string OfflineNote => $"{D.Hostname} is offline (last seen {F.Ago(D.LastSeenAt)}). It will run when the device next checks in.";
+
+    private void Fail(Exception e) => Toast.Fail(e, "Request failed - check that the server is running");
+
+    private RenderFragment Item(string icon, string label, Func<Task> onClick, bool danger = false) =>
+        @<button type="button" @onclick="onClick" class="@Cls.Join("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-panel-2", Cls.If(danger, "text-critical"))"><Icon Name="@icon" Class="size-4" />@label</button>;
+
+    private async Task Cmd(string type, string? payload = null)
+    {
+        try
+        {
+            var r = await Api.PostAsync<CommandQueued>($"/api/devices/{D.Id}/commands", new { type, payload });
+            if (r.Status == "sent") Toast.Success("Command delivered over the live channel");
+            else Toast.Info("Command queued", Online ? "Delivered on the next check-in." : OfflineNote);
+        }
+        catch (ApiException e) { Fail(e); }
+    }
+
+    private async Task State(string action, string? title = null, string? message = null, string? label = null)
+    {
+        _menu = false;
+        if (title is not null && !await Dialog.ConfirmAsync(new ConfirmOptions { Title = title, Message = message, ConfirmLabel = label, Danger = true })) return;
+        try
+        {
+            await Api.PostAsync($"/api/devices/{D.Id}/{action}");
+            Toast.Success($"Device {(action == "retire" ? "retired" : $"{action}d")}");
+            await OnChanged.InvokeAsync();
+        }
+        catch (ApiException e) { Fail(e); }
+    }
+
+    private async Task CreateUninstallCode()
+    {
+        _menu = false;
+        try
+        {
+            _code = await Api.PostAsync<UninstallCode>($"/api/devices/{D.Id}/uninstall-code");
+            if (!Online) Toast.Warning("Device is offline", "The code only works after the device checks in and receives it.");
+        }
+        catch (ApiException e) { Fail(e); }
+    }
+
+    private async Task Uninstall()
+    {
+        _menu = false;
+        if (await Dialog.ConfirmAsync(new ConfirmOptions
+            {
+                Title = $"Uninstall the agent from {D.Hostname}?",
+                Message = "The agent, watchdog and tray app are removed from the device. This action is audited.",
+                Note = Online ? null : OfflineNote, ConfirmLabel = "Uninstall agent", Danger = true,
+            })) await Cmd("uninstall");
+    }
+
+    private async Task Delete()
+    {
+        _menu = false;
+        if (!await Dialog.ConfirmAsync(new ConfirmOptions
+            {
+                Title = $"Delete {D.Hostname}?",
+                Message = "The device and all of its history (activity, internet usage, browsing, inventory, events and alerts) are permanently deleted. This cannot be undone.",
+                Note = Online ? "The agent is still running on this PC. It will stop reporting, but stays installed - use Remote uninstall first to remove it." : null,
+                ConfirmLabel = "Delete device", Danger = true,
+            })) return;
+        try
+        {
+            await Api.PostAsync("/api/devices/delete", new { deviceIds = new[] { D.Id } });
+            Toast.Success($"{D.Hostname} deleted");
+            Nav.NavigateTo("/devices");
+        }
+        catch (ApiException e) { Fail(e); }
+    }
+}

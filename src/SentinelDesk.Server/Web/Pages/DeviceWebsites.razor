@@ -1,0 +1,137 @@
+@inherits ConsolePage
+@inject LiveHub Hub
+
+@if (_data is null)
+{
+    <Skeleton Class="h-96" />
+}
+else
+{
+    var d = _data;
+    var rows = d.Domains.Where(x => (_showSystem || x.Category != "System") && (_cat == "" || x.Category == _cat) && (_q == "" || x.Domain.Contains(_q.ToLowerInvariant())))
+        .OrderByDescending(x => _sort == "data" ? x.BytesIn + x.BytesOut : x.Hits).ThenByDescending(x => x.Hits).ToList();
+    var liveSites = _live?.Sites.Where(s => s.InBps + s.OutBps > 0).ToList() ?? [];
+    var liveMax = Math.Max(1, liveSites.Select(s => s.InBps + s.OutBps).DefaultIfEmpty(0).Max());
+
+    <div class="grid gap-3 xl:grid-cols-3">
+        <Card Class="xl:col-span-3" Title="Using the internet now"
+              Subtitle="@(_live is null ? "Loading…" : !_live.Online ? "Device offline" : _live.At is not null ? $"Live · updated {F.Ago(_live.At)} · traffic per site since the previous heartbeat" : "Waiting for the first live sample…")">
+            <Actions><Legend Items="Legend.DownUp" /></Actions>
+            <ChildContent>
+                @if (liveSites.Count == 0)
+                {
+                    <Empty Icon="Activity" Title="@(_live?.Online == true ? "No website traffic right now" : "No live data")">
+                        @(_live?.Online == true ? "Sites appear here as soon as the device exchanges data with them." : "Live usage appears when the device is online.")
+                    </Empty>
+                }
+                else
+                {
+                    <ul class="space-y-2.5">
+                        @foreach (var s in liveSites)
+                        {
+                            <li>
+                                <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                                    <span class="flex items-center gap-2 font-medium"><OnlineDot Online="true" />@s.Domain<Badge>@s.Category</Badge></span>
+                                    <span class="tabular text-xs text-fg-2">↓ @Fmt.Bps(s.InBps) · ↑ @Fmt.Bps(s.OutBps)</span>
+                                </div>
+                                <div class="flex h-1.5 overflow-hidden rounded-full bg-panel-2">
+                                    <div class="h-full" style="width:@(Cls.Css(s.InBps * 100.0 / liveMax))%;background:@Series.Down"></div>
+                                    <div class="h-full" style="width:@(Cls.Css(s.OutBps * 100.0 / liveMax))%;background:@Series.Up"></div>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </ChildContent>
+        </Card>
+        <Card Class="xl:col-span-3">
+            <div class="grid gap-3 sm:grid-cols-3">
+                <MiniStat Icon="Globe" Label="@($"Website data · last {(_days == 1 ? "day" : $"{_days} days")}")" Value="@Fmt.Bytes(d.TotalBytesIn + d.TotalBytesOut)" Sub="@($"{F.Num(d.Domains.Count)} sites")" />
+                <MiniStat Icon="ArrowDown" IconClass="size-3.5 text-s1" Label="Downloaded from websites" Value="@Fmt.Bytes(d.TotalBytesIn)" />
+                <MiniStat Icon="ArrowUp" IconClass="size-3.5 text-s2" Label="Uploaded to websites" Value="@Fmt.Bytes(d.TotalBytesOut)" />
+            </div>
+        </Card>
+        <Card Title="Categories" Subtitle="@($"Last {_days} days")">
+            <Actions><Segmented TValue="int" Value="_days" ValueChanged="SetDays" Options="@([(1, "1d"), (7, "7d"), (30, "30d")])" /></Actions>
+            <ChildContent>
+                <RankBars Color="var(--series-7)" Format="v => F.Num(v)" OnClick="@(k => _cat = _cat == k ? "" : k)"
+                          Rows="@d.Categories.Where(c => _showSystem || c.Category != "System").Select(c => new RankBars.Bar(c.Category, c.Category, c.Hits, null, CatLabel(c.Category)))" />
+                <label class="mt-4 flex items-center gap-2 text-xs text-muted"><input type="checkbox" @bind="_showSystem" />Show background/system domains</label>
+            </ChildContent>
+        </Card>
+        <Card Class="xl:col-span-2" Pad="false" Title="Sites visited" Subtitle="Per site (DNS) with the data exchanged with it. Full page URLs require the optional browser extension and HR/legal approval.">
+            <div class="flex flex-wrap items-center gap-2 px-6 pb-3 pt-4">
+                <input class="@Cls.InputCls("max-w-xs")" @bind="_q" @bind:event="oninput" placeholder="Filter sites…" />
+                <Segmented TValue="string" @bind-Value="_sort" Options="@([("data", "Most data"), ("hits", "Most lookups")])" />
+                @if (_cat != "")
+                {
+                    <Badge Tone="brand">@_cat <button type="button" @onclick='() => _cat = ""' class="ml-1">×</button></Badge>
+                }
+            </div>
+            @if (rows.Count == 0)
+            {
+                <Empty Icon="Globe" Title="No sites in this view" />
+            }
+            else
+            {
+                <DataTable>
+                    <thead><tr><th>Site</th><th>Category</th><th class="text-right">Download</th><th class="text-right">Upload</th><th class="text-right">Total</th><th class="text-right">Lookups</th><th class="hidden md:table-cell">Users</th><th>Last</th></tr></thead>
+                    <tbody>
+                        @foreach (var x in rows.Take(200))
+                        {
+                            <tr>
+                                <td><div class="font-medium">@x.Domain</div><div class="max-w-64 truncate text-[11px] text-muted">@string.Join(", ", x.Hosts)</div></td>
+                                <td><Badge Tone="@(Distracting.Contains(x.Category) ? "warning" : "neutral")">@x.Category</Badge></td>
+                                <td class="text-right tabular text-xs">@(x.BytesIn > 0 ? Fmt.Bytes(x.BytesIn) : "—")</td>
+                                <td class="text-right tabular text-xs">@(x.BytesOut > 0 ? Fmt.Bytes(x.BytesOut) : "—")</td>
+                                <td class="text-right font-medium tabular">@(x.BytesIn + x.BytesOut > 0 ? Fmt.Bytes(x.BytesIn + x.BytesOut) : "—")</td>
+                                <td class="text-right tabular">@F.Num(x.Hits)</td>
+                                <td class="hidden max-w-36 truncate text-xs text-fg-2 md:table-cell">@(x.Users.Count > 0 ? string.Join(", ", x.Users.Select(Fmt.ShortUser)) : "—")</td>
+                                <td class="text-xs text-muted">@F.Ago(x.LastVisit)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </DataTable>
+            }
+        </Card>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private static readonly HashSet<string> Distracting = ["Social", "Streaming", "Gaming", "Shopping"];
+
+    private WebData? _data;
+    private LiveWeb? _live;
+    private int _days = 7;
+    private string _cat = "", _q = "", _sort = "data";
+    private bool _showSystem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Hub.Presence += OnPresence;
+        OnDispose(() => Hub.Presence -= OnPresence);
+        await Task.WhenAll(Load(), LoadLive());
+        Every(TimeSpan.FromSeconds(60), Load);
+        Every(TimeSpan.FromSeconds(5), LoadLive);
+    }
+
+    // a fresh heartbeat carries new live numbers - refetch right away instead of waiting for the next poll
+    private void OnPresence(LivePresence p) { if (p.DeviceId == Id) UiAsync(LoadLive); }
+
+    private async Task SetDays(int d) { _days = d; await Load(); }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<WebData>($"/api/devices/{Id}/web?days={_days}"); }
+        catch (ApiException e) { if (_data is null) Toast.Fail(e, "Could not load browsing"); }
+    }
+
+    private async Task LoadLive()
+    {
+        try { _live = await Api.GetAsync<LiveWeb>($"/api/devices/{Id}/web/live"); } catch (ApiException) { }
+    }
+
+    private RenderFragment CatLabel(string c) => @<span class="@Cls.If(_cat == c, "font-semibold underline underline-offset-4")">@c</span>;
+}

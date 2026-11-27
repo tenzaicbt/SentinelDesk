@@ -1,0 +1,10 @@
+@if (Stream is not null)
+{
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-good/12 px-2 py-0.5 text-[11px] font-medium text-good-ink">
+        <span class="pulse-dot size-1.5 rounded-full bg-good"></span>Live · @Stream.IntervalMs ms
+    </span>
+}
+
+@code {
+    [Parameter] public StreamState? Stream { get; set; }
+}

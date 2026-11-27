@@ -1,0 +1,32 @@
+@{
+    var p = P;
+    var todayIn = Math.Max(D.Today.BytesIn, p?.TodayIn ?? 0);
+    var todayOut = Math.Max(D.Today.BytesOut, p?.TodayOut ?? 0);
+    var subtitle = p is null ? $"Device offline · last seen {F.Ago(D.LastSeenAt)}"
+        : Stream is not null ? $"Streaming live · a new sample every {Stream.IntervalMs} ms"
+        : $"Updated {F.Ago(p.LastSeen)} · {(D.LiveChannel ? "live channel connected" : "heartbeat polling")}";
+}
+<div class="space-y-3">
+    <Card Title="Right now" Subtitle="@subtitle">
+        <Actions><StreamBadge Stream="Stream" /></Actions>
+        <ChildContent>
+            <div class="grid gap-2 sm:grid-cols-3 2xl:grid-cols-6">
+                <MiniStat Icon="AppWindow" Label="Foreground app" Value="@(p?.CurrentApp is { } app ? Fmt.AppName(app) : "—")"
+                          Sub="@(p is null ? "Offline" : p.Locked ? "Screen locked" : p.Idle ? "Idle" : $"In use by {p.User ?? D.LoggedInUser ?? "unknown"}")" />
+                <MiniStat Icon="ArrowDown" IconClass="size-3.5 text-s1" Label="Download now" Value="@Fmt.Bps(p?.NetInBps)" Spark="@NetHist.Select(h => h.In).ToList()" Color="@Series.Down" />
+                <MiniStat Icon="ArrowUp" IconClass="size-3.5 text-s2" Label="Upload now" Value="@Fmt.Bps(p?.NetOutBps)" Spark="@NetHist.Select(h => h.Out).ToList()" Color="@Series.Up" />
+                <MiniStat Icon="Cpu" Label="CPU" Value="@(p is null ? "—" : $"{p.Cpu.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}%")" Spark="@NetHist.Select(h => h.Cpu).ToList()" SparkMax="100" Color="var(--brand)" />
+                <MiniStat Icon="MemoryStick" Label="Memory" Value="@(p is null ? "—" : $"{p.Ram:F0}%")" Spark="@NetHist.Select(h => h.Ram).ToList()" SparkMax="100" Color="var(--muted)" />
+                <MiniStat Icon="Wifi" Label="Data today" Value="@Fmt.Bytes(todayIn + todayOut)" Sub="@($"↓ {Fmt.Bytes(todayIn)} · ↑ {Fmt.Bytes(todayOut)}")" />
+            </div>
+        </ChildContent>
+    </Card>
+    <DeviceApps Id="D.Id" P="P" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DeviceDetail D { get; set; } = default!;
+    [Parameter] public LivePresence? P { get; set; }
+    [Parameter] public List<HistPoint> NetHist { get; set; } = [];
+    [Parameter] public StreamState? Stream { get; set; }
+}

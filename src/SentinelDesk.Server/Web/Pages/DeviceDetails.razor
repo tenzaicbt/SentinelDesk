@@ -1,0 +1,173 @@
+@* Everything known about the device on one screen: four dense columns + a storage table. *@
+@{
+    var d = D;
+    var h = d.Hardware;
+    var s = d.Security;
+}
+<div class="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+    <Card Title="Device">
+        <Kv>
+            <KvRow K="Hostname"><span class="font-medium">@d.Hostname</span></KvRow>
+            <KvRow K="Domain" V="@(d.Domain ?? h?.Domain)" />
+            <KvRow K="Branch">
+                @if (d.OrgPath.Count > 0)
+                {
+                    <span title="@string.Join(" / ", d.OrgPath)">@string.Join(" / ", d.OrgPath)</span>
+                }
+                else
+                {
+                    @("—")
+                }
+            </KvRow>
+            <KvRow K="User" V="@(P?.User ?? d.LoggedInUser)" />
+            <KvRow K="Manufacturer" V="@(h?.Manufacturer ?? d.Manufacturer)" />
+            <KvRow K="Model" V="@(h?.Model ?? d.Model)" />
+            <KvRow K="Serial">@Mono(h?.Serial ?? d.Serial)</KvRow>
+            <KvRow K="Tags" V="@d.Tags" />
+            <KvRow K="Enrolled" V="@F.DateTimeText(d.EnrolledAt)" />
+            <KvRow K="Last seen">
+                @if (Online)
+                {
+                    <Badge Tone="good">Now</Badge>
+                }
+                else
+                {
+                    @F.Ago(d.LastSeenAt)
+                }
+            </KvRow>
+        </Kv>
+    </Card>
+    <Card Title="Hardware" Subtitle="@Collected(d.HardwareCollectedAt)">
+        <Kv>
+            <KvRow K="CPU">@Titled(h?.Cpu)</KvRow>
+            <KvRow K="Cores / threads" V="@(h is null ? null : $"{h.CpuCores} / {h.CpuThreads}")" />
+            <KvRow K="Memory" V="@(h?.RamMb > 0 ? $"{(h.RamMb / 1024.0).ToString(h.RamMb % 1024 != 0 ? "F1" : "F0", System.Globalization.CultureInfo.InvariantCulture)} GB" : null)" />
+            <KvRow K="GPU">@Titled(h?.Gpu)</KvRow>
+            <KvRow K="TPM">@Yes(h?.TpmPresent)</KvRow>
+            <KvRow K="BIOS" V="@h?.BiosVersion" />
+            <KvRow K="OS">@Titled(h?.Os ?? d.Os)</KvRow>
+            <KvRow K="Build">@Mono(h?.OsBuild ?? d.OsBuild)</KvRow>
+            <KvRow K="CPU now" V="@(P is null ? null : $"{P.Cpu:F0}%")" />
+            <KvRow K="Memory now" V="@(P is null ? null : $"{P.Ram:F0}%")" />
+        </Kv>
+    </Card>
+    <Card Title="Security" Subtitle="@Collected(d.SecurityCollectedAt)">
+        <Kv>
+            <KvRow K="Antivirus">@Titled(s?.Antivirus)</KvRow>
+            <KvRow K="AV enabled">@Yes(s?.AntivirusEnabled)</KvRow>
+            <KvRow K="AV up to date">@Yes(s?.AntivirusUpToDate)</KvRow>
+            <KvRow K="Firewall">@Yes(s?.FirewallEnabled)</KvRow>
+            <KvRow K="BitLocker">
+                @if (s?.BitLocker is { } bl)
+                {
+                    <Badge Tone="@(bl.StartsWith("on", StringComparison.OrdinalIgnoreCase) ? "good" : "warning")">@bl</Badge>
+                }
+                else
+                {
+                    @("—")
+                }
+            </KvRow>
+            <KvRow K="Last update" V="@s?.LastUpdateInstalled?.ToString("yyyy-MM-dd")" />
+            <KvRow K="Reboot pending">@Yes(s?.RebootPending, false)</KvRow>
+            <KvRow K="USB storage blocked">
+                @if (s?.UsbStorageBlocked is { } usb)
+                {
+                    <Badge>@(usb ? "Yes" : "No")</Badge>
+                }
+                else
+                {
+                    @("—")
+                }
+            </KvRow>
+        </Kv>
+    </Card>
+    <Card Title="Agent &amp; policy">
+        <Kv>
+            <KvRow K="Agent version">@Mono(d.AgentVersion)</KvRow>
+            <KvRow K="Status"><Badge Tone="@(d.Status == "active" ? "good" : "warning")">@d.Status</Badge></KvRow>
+            <KvRow K="Block policies">
+                @if (d.Policy.Restrictions?.Count > 0)
+                {
+                    <span class="flex flex-wrap justify-end gap-1">
+                        @foreach (var r in d.Policy.Restrictions)
+                        {
+                            <a href="@($"/policies/{r.Id}")"><Badge Tone="critical">@r.Name</Badge></a>
+                        }
+                    </span>
+                }
+                else
+                {
+                    @("None")
+                }
+            </KvRow>
+            <KvRow K="Rules applied on the computer">@Yes(d.Policy.Applied)</KvRow>
+            <KvRow K="Server link">
+                @if (d.LiveChannel)
+                {
+                    <Badge Tone="good">Live channel</Badge>
+                }
+                else
+                {
+                    <Badge>Heartbeat</Badge>
+                }
+            </KvRow>
+            <KvRow K="Local IP">@Mono(P?.Ip ?? d.LastIp)</KvRow>
+            <KvRow K="Public IP">@Mono(d.PublicIp)</KvRow>
+            <KvRow K="Certificate expires" V="@(d.CertExpiresAt is null ? null : F.DateTimeText(d.CertExpiresAt))" />
+            <KvRow K="Certificate">@Mono(d.CertThumbprint)</KvRow>
+            <KvRow K="Machine ID">@Mono(d.MachineId)</KvRow>
+        </Kv>
+    </Card>
+    <Card Class="md:col-span-2 2xl:col-span-4" Title="Storage" Pad="false">
+        @if (h?.Disks.Count > 0)
+        {
+            <DataTable>
+                <thead><tr><th>Drive</th><th>Model</th><th>Type</th><th class="text-right">Size</th><th class="text-right">Free</th><th class="w-1/4">Used</th></tr></thead>
+                <tbody>
+                    @foreach (var k in h.Disks)
+                    {
+                        <tr>
+                            <td class="font-medium">@k.Name</td>
+                            <td class="max-w-60 truncate text-fg-2" title="@k.Model">@(k.Model ?? "—")</td>
+                            <td>
+                                @if (k.Type is not null)
+                                {
+                                    <Badge>@k.Type</Badge>
+                                }
+                                else
+                                {
+                                    @("—")
+                                }
+                            </td>
+                            <td class="text-right tabular">@F.Num(k.SizeGb) GB</td>
+                            <td class="text-right tabular">@F.Num(k.FreeGb) GB</td>
+                            <td><Meter Value="@(k.SizeGb > 0 ? (k.SizeGb - k.FreeGb) * 100.0 / k.SizeGb : null)" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </DataTable>
+        }
+        else
+        {
+            <Empty Icon="HardDrive" Title="Disk details not collected yet" />
+        }
+    </Card>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DeviceDetail D { get; set; } = default!;
+    [Parameter] public LivePresence? P { get; set; }
+    [Parameter] public bool Online { get; set; }
+
+    private string Collected(DateTime? at) => at is null ? "Not collected yet" : $"Collected {F.Ago(at)}";
+
+    private static RenderFragment Mono(string? v) => v is { Length: > 0 }
+        ? @<span class="font-mono text-xs" title="@v">@v</span>
+        : @<text>—</text>;
+
+    private static RenderFragment Titled(string? v) => v is { Length: > 0 } ? @<span title="@v">@v</span> : @<text>—</text>;
+
+    private static RenderFragment Yes(bool? v, bool goodWhen = true) => v is null
+        ? @<text>—</text>
+        : @<Badge Tone="@(v == goodWhen ? "good" : "critical")">@(v.Value ? "Yes" : "No")</Badge>;
+}

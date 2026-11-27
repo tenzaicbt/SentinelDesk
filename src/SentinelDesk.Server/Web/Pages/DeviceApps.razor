@@ -1,0 +1,106 @@
+@if (_data is null)
+{
+    <Skeleton Class="h-96" />
+}
+else
+{
+    var d = _data;
+    var total = d.TotalActiveSec + d.TotalIdleSec;
+    var prod = total > 0 ? Math.Round(d.TotalActiveSec * 100.0 / total, MidpointRounding.AwayFromZero) : 0;
+    <div class="grid gap-3 xl:grid-cols-3">
+        <Card Class="xl:col-span-3" Title="Activity by hour" Subtitle="@(_days == 1 ? "Today, minutes per hour" : $"Average per day over {_days} days")">
+            <Actions><Segmented TValue="int" Value="_days" ValueChanged="SetDays" Options="@([(1, "Today"), (7, "7 days"), (30, "30 days")])" /></Actions>
+            <ChildContent>
+                <div class="mb-3 flex flex-wrap items-center gap-4 text-sm">
+                    <div><span class="text-muted">Active </span><span class="font-semibold tabular">@Fmt.Duration(d.TotalActiveSec)</span></div>
+                    <div><span class="text-muted">Idle </span><span class="font-semibold tabular">@Fmt.Duration(d.TotalIdleSec)</span></div>
+                    <div><span class="text-muted">Active share </span><span class="font-semibold tabular">@prod%</span></div>
+                    @if (P?.CurrentApp is { } now)
+                    {
+                        <div class="ml-auto inline-flex items-center gap-2 text-xs"><OnlineDot Online="true" />Now: <b>@Fmt.AppName(now)</b></div>
+                    }
+                    <Legend Items="Legend.ActiveIdle" />
+                </div>
+                <AreaChart Rows="@d.Timeline.Select(x => new AreaChart.Row($"{x.Hour:00}:00", [Math.Round(x.ActiveSec / 60.0), Math.Round(x.IdleSec / 60.0)])).ToList()"
+                           Series="ActiveIdle" Height="200" Stacked="true" Total="true" TipFormat="@(v => $"{v:0} min")" />
+            </ChildContent>
+        </Card>
+        <Card Class="xl:col-span-2" Title="Applications by active time" Subtitle="Click an application to see top window titles (masked per policy)">
+            @if (d.Apps.Count == 0)
+            {
+                <Empty Icon="AppWindow" Title="No application usage in this period" />
+            }
+            else
+            {
+                var top = Math.Max(1, d.Apps[0].ActiveSec);
+                <ul class="divide-y divide-line">
+                    @foreach (var a in d.Apps.Take(20))
+                    {
+                        <li class="py-2">
+                            <button type="button" class="w-full text-left" @onclick="() => _open = _open == a.App ? null : a.App">
+                                <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                                    <span class="flex items-center gap-2 font-medium">@Fmt.AppName(a.App)<span class="font-mono text-[11px] font-normal text-muted">@a.App</span></span>
+                                    <span class="tabular text-fg-2">@Fmt.Duration(a.ActiveSec)</span>
+                                </div>
+                                <div class="h-1.5 rounded-full bg-panel-2"><div class="h-full rounded-full bg-s1" style="width:@(Cls.Css(a.ActiveSec * 100.0 / top))%"></div></div>
+                            </button>
+                            @if (_open == a.App && a.Titles is not null)
+                            {
+                                <ul class="mt-2 space-y-1 rounded-md bg-panel-2 p-2.5 text-xs">
+                                    @if (a.Titles.Count == 0)
+                                    {
+                                        <li class="text-muted">No window titles captured (privacy policy)</li>
+                                    }
+                                    @foreach (var t in a.Titles)
+                                    {
+                                        <li class="flex justify-between gap-3"><span class="truncate">@t.Title</span><span class="shrink-0 tabular text-muted">@Fmt.Duration(t.Sec)</span></li>
+                                    }
+                                </ul>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </Card>
+        <Card Title="Running processes" Subtitle="@(d.ProcessesCollectedAt is { } at ? $"Snapshot {F.Ago(at)}" : "No snapshot yet")" Pad="false">
+            <div class="p-3 pb-0"><input class="@Cls.Input" @bind="_pq" @bind:event="oninput" placeholder="Filter processes…" /></div>
+            <div class="max-h-130 overflow-y-auto">
+                <DataTable>
+                    <thead><tr><th>Process</th><th>User</th><th class="text-right">Memory</th></tr></thead>
+                    <tbody>
+                        @foreach (var x in (d.Processes ?? []).Where(x => _pq == "" || x.Name.Contains(_pq, StringComparison.OrdinalIgnoreCase)).Take(150))
+                        {
+                            <tr title="@x.Path"><td class="max-w-40 truncate">@x.Name</td><td class="max-w-28 truncate text-xs text-muted">@(Fmt.ShortUser(x.User) ?? "—")</td><td class="text-right tabular text-xs">@F.Num(x.MemoryMb) MB</td></tr>
+                        }
+                    </tbody>
+                </DataTable>
+            </div>
+        </Card>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [Parameter] public LivePresence? P { get; set; }
+
+    private static readonly ChartSeries[] ActiveIdle = [new("active", "Active", Series.Active), new("idle", "Idle", Series.Idle)];
+
+    private AppsData? _data;
+    private int _days = 1;
+    private string? _open;
+    private string _pq = "";
+    private Guid _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded != Id) { _loaded = Id; await Load(); }
+    }
+
+    private async Task SetDays(int d) { _days = d; await Load(); }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<AppsData>($"/api/devices/{Id}/apps?days={_days}"); }
+        catch (ApiException e) { Toast.Fail(e, "Could not load applications"); }
+    }
+}

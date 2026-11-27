@@ -1,0 +1,201 @@
+@page "/devices/{Id:guid}"
+@inherits ConsolePage
+@inject LiveHub Hub
+
+@if (_error is not null)
+{
+    <Callout Tone="critical">@_error</Callout>
+}
+else if (_d is null)
+{
+    <div class="space-y-3"><Skeleton Class="h-24" /><Skeleton Class="h-96" /></div>
+}
+else
+{
+    var d = _d;
+    var online = Online;
+    var p = online ? _presence : null;
+    var stream = online ? _stream : null;
+
+    <nav class="mb-3 flex items-center gap-1 text-xs text-muted">
+        <a href="/devices" class="inline-flex items-center gap-1 hover:text-fg"><Icon Name="ArrowLeft" Class="size-3.5" />Devices</a>
+        @foreach (var part in d.OrgPath)
+        {
+            <span class="inline-flex items-center gap-1"><Icon Name="ChevronRight" Class="size-3" />@part</span>
+        }
+    </nav>
+
+    <div class="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div class="flex min-w-0 items-center gap-4">
+            <div class="relative grid size-12 shrink-0 place-items-center rounded-lg border border-line bg-panel-2 text-fg">
+                <Icon Name="@(Cls.IsLaptop(d.Tags, d.Model) ? "Laptop" : "Monitor")" Class="size-6" />
+                <OnlineDot Online="online" Class="absolute -right-1 -top-1 size-3 ring-2 ring-panel dark:ring-page" />
+            </div>
+            <div class="min-w-0">
+                <h1 class="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">
+                    @d.Hostname
+                    <StatusPill Online="online" />
+                    @if (d.Status != "active")
+                    {
+                        <Badge Tone="warning">@d.Status</Badge>
+                    }
+                    @if (d.IsSimulated)
+                    {
+                        <Badge Tone="brand">demo</Badge>
+                    }
+                </h1>
+                <p class="mt-1 truncate text-sm text-muted">
+                    @string.Join(" ", new[] { d.Manufacturer, d.Model }.Where(x => !string.IsNullOrEmpty(x))) · @d.Os (@d.OsBuild) · @(online ? (_presence?.User ?? d.LoggedInUser ?? "no user") : $"last seen {F.Ago(d.LastSeenAt)}")
+                </p>
+            </div>
+        </div>
+        @if (Session.Can.Write)
+        {
+            <DeviceActions D="d" Online="online" OnChanged="Load" />
+        }
+    </div>
+
+    @if (d.Status == "pending" && Session.Can.Write)
+    {
+        <div class="mb-3"><Callout Tone="warning">This device enrolled and is awaiting approval. Telemetry is buffered on the device until it is approved.</Callout></div>
+    }
+
+    <Tabs Items="TabItems" @bind-Value="_tab" />
+    <div class="mt-4">
+        @switch (_tab)
+        {
+            case "live":
+                <DeviceLive D="d" P="p" NetHist="_netHist" Stream="stream" />
+                break;
+            case "details":
+                <DeviceDetails D="d" P="p" Online="online" />
+                break;
+            case "bandwidth":
+                <DeviceBandwidth Id="d.Id" P="p" NetHist="_netHist" Stream="stream" />
+                break;
+            case "web":
+                <DeviceWebsites Id="d.Id" />
+                break;
+            case "network":
+                <DeviceNetwork D="d" P="p" />
+                break;
+            case "location":
+                <DeviceLocation Id="d.Id" Loc="d.Location" />
+                break;
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    /// <summary>~60 s of history at the 500 ms stream rate.</summary>
+    private const int Hist = 120;
+
+    private DeviceDetail? _d;
+    private string? _error;
+    private string _tab = "live";
+    private LivePresence? _presence;
+    private List<HistPoint> _netHist = [];
+    private StreamState? _stream;
+    private DateTime _lastSampleAt = DateTime.MinValue;
+    private Guid _loaded;
+    private IAsyncDisposable? _watch;
+
+    private bool Streaming(DateTime now) => now - _lastSampleAt < TimeSpan.FromSeconds(3);
+    private bool Online => _presence is not null && DateTime.UtcNow - _presence.LastSeen < TimeSpan.FromSeconds(150);
+
+    private IEnumerable<TabItem> TabItems =>
+    [
+        new("live", "Live activity", "Activity"), new("details", "Details", "ClipboardList"), new("bandwidth", "Internet usage", "ArrowDown"),
+        .. Session.Can.Web ? [new TabItem("web", "Browsing", "Globe")] : Array.Empty<TabItem>(),
+        new("network", "Network", "Network"),
+        .. Session.Can.Web ? [new TabItem("location", "Location", "MapPin")] : Array.Empty<TabItem>(),
+    ];
+
+    protected override void OnInitialized()
+    {
+        Hub.Presence += OnPresence;
+        Hub.LiveSample += OnSample;
+        Hub.InventoryUpdated += OnInventory;
+        Hub.CommandStatus += OnCommand;
+        OnDispose(() => { Hub.Presence -= OnPresence; Hub.LiveSample -= OnSample; Hub.InventoryUpdated -= OnInventory; Hub.CommandStatus -= OnCommand; });
+        Every(TimeSpan.FromSeconds(60), Load);
+        // flag the stream as stopped if samples dry up (agent disconnected, device asleep)
+        Every(TimeSpan.FromSeconds(1), () => { if (_stream is not null && !Streaming(DateTime.UtcNow)) _stream = null; return Task.CompletedTask; });
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == Id) return;
+        _loaded = Id;
+        _d = null; _error = null; _netHist = []; _stream = null; _presence = null; _tab = "live";
+        if (_watch is not null) await _watch.DisposeAsync();
+        _watch = await Hub.JoinAsync("WatchDevice", "UnwatchDevice", Id);
+        await Load();
+        _presence = _d?.Presence;
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            _d = await Api.GetAsync<DeviceDetail>($"/api/devices/{Id}");
+            if (_d.Presence is not null && (_presence is null || _d.Presence.LastSeen > _presence.LastSeen) && !Streaming(DateTime.UtcNow)) _presence = _d.Presence;
+        }
+        catch (ApiException e) { if (_d is null) _error = e.Message; }
+    }
+
+    private void OnPresence(LivePresence p)
+    {
+        if (p.DeviceId != Id) return;
+        Ui(() =>
+        {
+            // while the sub-second stream runs, keep its fresher live fields and don't mix heartbeat points into the history
+            if (Streaming(DateTime.UtcNow))
+            {
+                _presence = _presence is { } cur
+                    ? p with { Cpu = cur.Cpu, Ram = cur.Ram, NetInBps = cur.NetInBps, NetOutBps = cur.NetOutBps, CurrentApp = cur.CurrentApp, CurrentTitle = cur.CurrentTitle, Idle = cur.Idle, Locked = cur.Locked, LastSeen = cur.LastSeen }
+                    : p;
+                return;
+            }
+            _presence = p;
+            _netHist = [.. _netHist.Append(new HistPoint(F.TimeWithSeconds(DateTime.UtcNow), p.NetInBps, p.NetOutBps, p.Cpu, p.Ram)).TakeLast(Hist)];
+        });
+    }
+
+    // agent -> server -> console relay while this page is open: one sample every ~500 ms
+    private void OnSample(LiveSampleMsg s)
+    {
+        if (s.DeviceId != Id) return;
+        Ui(() =>
+        {
+            var now = DateTime.UtcNow;
+            if (!Streaming(now)) _netHist = []; // switching from heartbeat cadence: start a clean sub-second history
+            _lastSampleAt = now;
+            _stream = new StreamState(s.IntervalMs);
+            if (_presence is { } cur)
+                _presence = cur with
+                {
+                    Cpu = s.Cpu, Ram = s.Ram, NetInBps = s.NetInBps, NetOutBps = s.NetOutBps, CurrentApp = s.CurrentApp, CurrentTitle = s.CurrentTitle,
+                    Idle = s.Idle, Locked = s.Locked, LastSeen = DateTimeOffset.FromUnixTimeMilliseconds(s.ServerTimeMs).UtcDateTime,
+                };
+            var t = F.TimeWithSeconds(DateTimeOffset.FromUnixTimeMilliseconds(s.AgentTimeMs).UtcDateTime);
+            _netHist = [.. _netHist.Append(new HistPoint(t, s.NetInBps, s.NetOutBps, s.Cpu, s.Ram)).TakeLast(Hist)];
+        });
+    }
+
+    private void OnInventory(Guid id) { if (id == Id) UiAsync(Load); }
+
+    private void OnCommand(CommandStatusMsg c) => Ui(() =>
+    {
+        if (c.Status == "succeeded") Toast.Success($"{c.Type}: {c.Status}", c.Result);
+        else Toast.Error($"{c.Type}: {c.Status}", c.Result);
+    });
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (_watch is not null) await _watch.DisposeAsync();
+        await base.DisposeAsync();
+    }
+}

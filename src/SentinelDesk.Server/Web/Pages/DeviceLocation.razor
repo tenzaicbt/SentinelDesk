@@ -1,0 +1,161 @@
+@* Device location tab: current fix with accuracy radius, movement trail and recent positions. *@
+@inherits ConsolePage
+@inject IConfiguration Config
+
+@if (Loc is null)
+{
+    <Empty Icon="MapPin" Title="Location is not available for your role" />
+}
+else
+{
+    var has = Loc.Lat is not null && Loc.Lng is not null;
+    <div class="space-y-3">
+        @if (!Loc.Enabled)
+        {
+            <Callout Tone="warning">
+                Location tracking is off for this device. Turn on <b>Device location</b> in the device's policy (Policies → Collectors).
+                @(has ? " The last known position is shown below." : "")
+            </Callout>
+        }
+        @if (Loc.Enabled && !has)
+        {
+            <Callout Tone="warning">No position received yet. @(Loc.Error ?? "It arrives within a few minutes of a user signing in.")</Callout>
+        }
+        @if (Loc.Enabled && has && Loc.Error is not null)
+        {
+            <Callout Tone="warning">@Loc.Error</Callout>
+        }
+
+        <div class="grid gap-3 xl:grid-cols-[1fr_320px]">
+            <Card Pad="false" Title="Location" Subtitle="Windows Location (Wi-Fi / GPS). The dashed circle is the accuracy radius.">
+                <Actions><Segmented TValue="int" Value="_hours" ValueChanged="SetHours" Options="@([(24, "24 h"), (168, "7 days"), (720, "30 days")])" /></Actions>
+                <ChildContent>
+                    @if (!has && (_trail?.Count ?? 0) == 0)
+                    {
+                        <Empty Icon="MapPin" Title="No location recorded" />
+                    }
+                    else
+                    {
+                        <div @ref="_el" style="height:420px;width:100%"></div>
+                    }
+                </ChildContent>
+            </Card>
+
+            <div class="space-y-3">
+                <Card Title="Current position">
+                    <Kv>
+                        <KvRow K="Updated">
+                            @if (Loc.At is not null)
+                            {
+                                <span title="@F.DateTimeText(Loc.At)">@F.Ago(Loc.At)</span>
+                            }
+                            else
+                            {
+                                @("—")
+                            }
+                        </KvRow>
+                        <KvRow K="Accuracy" V="@(Loc.AccuracyM is { } a ? $"± {Math.Round(a)} m" : null)" />
+                        <KvRow K="Source" V="@Loc.Source" />
+                        <KvRow K="Coordinates">
+                            @if (has)
+                            {
+                                <a class="font-mono text-xs text-brand-ink hover:underline" href="@MapsLink(Loc.Lat!.Value, Loc.Lng!.Value)" target="_blank" rel="noreferrer">@Coord(Loc.Lat!.Value), @Coord(Loc.Lng!.Value)</a>
+                            }
+                            else
+                            {
+                                @("—")
+                            }
+                        </KvRow>
+                    </Kv>
+                </Card>
+                <Card Pad="false" Title="Recent positions">
+                    @if (_trail is null)
+                    {
+                        <div class="p-3"><Skeleton Class="h-24" /></div>
+                    }
+                    else if (_trail.Count == 0)
+                    {
+                        <Empty Title="None in this period" />
+                    }
+                    else
+                    {
+                        <div class="max-h-64 overflow-y-auto">
+                            <DataTable>
+                                <thead><tr><th>Time</th><th class="text-right">Accuracy</th></tr></thead>
+                                <tbody>
+                                    @foreach (var p in Enumerable.Reverse(_trail).Take(100))
+                                    {
+                                        <tr>
+                                            <td class="text-xs"><a class="hover:underline" href="@MapsLink(p.Lat, p.Lng)" target="_blank" rel="noreferrer">@F.DateTimeText(p.Time)</a></td>
+                                            <td class="text-right text-xs tabular">± @Math.Round(p.AccuracyM) m</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </DataTable>
+                        </div>
+                    }
+                </Card>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [Parameter] public LocationInfo? Loc { get; set; }
+    [CascadingParameter(Name = "Dark")] public bool Dark { get; set; }
+
+    private List<LocationPoint>? _trail;
+    private int _hours = 24;
+    private ElementReference _el;
+    private int? _map;
+
+    private static string Coord(double v) => v.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
+    private static string MapsLink(double lat, double lng) =>
+        $"https://www.google.com/maps?q={lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},{lng.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Loc is null) return;
+        await Load();
+        Every(TimeSpan.FromSeconds(60), Load);
+    }
+
+    private async Task SetHours(int h) { _hours = h; await Load(); }
+
+    private async Task Load()
+    {
+        try { _trail = await Api.GetAsync<List<LocationPoint>>($"/api/devices/{Id}/locations?hours={_hours}"); }
+        catch (ApiException e) { _trail ??= []; Toast.Fail(e, "Could not load locations"); }
+    }
+
+    private object Cfg() => new
+    {
+        dark = Dark,
+        tileUrl = Config["Console:MapTileUrl"] is { } u && u != "none" ? u : null,
+        attribution = Config["Console:MapTileAttribution"] ?? "Esri, HERE, Garmin, &copy; OpenStreetMap contributors",
+        trail = (_trail ?? []).Select(p => new { lat = p.Lat, lng = p.Lng, tip = $"{F.DateTimeText(p.Time)} · ±{Math.Round(p.AccuracyM)} m" }),
+        current = Loc?.Lat is { } lat && Loc.Lng is { } lng ? new { lat, lng, accuracyM = Loc.AccuracyM ?? 0, tip = $"Now · ±{Math.Round(Loc.AccuracyM ?? 0)} m" } : null,
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var hasEl = Loc is not null && (Loc.Lat is not null || (_trail?.Count ?? 0) > 0);
+        if (!hasEl) return;
+        try
+        {
+            if (_map is null) _map = await JS.InvokeAsync<int>("sd.locationMap", _el, Cfg());
+            else await JS.InvokeVoidAsync("sd.updateLocationMap", _map, Cfg());
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        try { if (_map is { } m) await JS.InvokeVoidAsync("sd.disposeMap", m); }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+        await base.DisposeAsync();
+    }
+}

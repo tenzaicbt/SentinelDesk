@@ -1,0 +1,114 @@
+@{
+    var total = _data?.Daily.Sum(x => x.BytesIn + x.BytesOut) ?? 0;
+}
+<div class="grid gap-3 xl:grid-cols-3">
+    <Card Class="xl:col-span-2" Title="Live throughput"
+          Subtitle="@(P is null ? "Device offline" : Stream is not null ? $"Streaming live · every {Stream.IntervalMs} ms" : "From heartbeats (every few seconds) until the live stream connects")">
+        <Actions><div class="flex items-center gap-3"><StreamBadge Stream="Stream" /><Legend Items="Legend.DownUp" /></div></Actions>
+        <ChildContent>
+            @if (NetHist.Count > 1)
+            {
+                <AreaChart Rows="@NetHist.Select(h => new AreaChart.Row(h.T, [h.In, h.Out])).ToList()" Series="InOut" Height="200" TipFormat="v => Fmt.Bps(v)" />
+            }
+            else
+            {
+                <Empty Icon="Activity" Title="@(P is not null ? "Collecting live samples…" : "No live data")">
+                    @(P is not null ? $"Current: ↓ {Fmt.Bps(P.NetInBps)} · ↑ {Fmt.Bps(P.NetOutBps)}" : "Live throughput appears when the device is online.")
+                </Empty>
+            }
+        </ChildContent>
+    </Card>
+    <Card Title="Today by hour">
+        <Actions><Legend Items="Legend.DownUp" /></Actions>
+        <ChildContent>
+            @if (_data is not null)
+            {
+                <AreaChart Rows="@_data.Hourly.Select(h => new AreaChart.Row($"{h.Hour:00}:00", [h.BytesIn, h.BytesOut])).ToList()" Series="InOut" Height="200" Stacked="true" Total="true" TipFormat="v => Fmt.Bytes(v)" />
+            }
+            else
+            {
+                <Skeleton Class="h-48" />
+            }
+        </ChildContent>
+    </Card>
+    <Card Class="xl:col-span-3" Title="Daily data usage" Subtitle="@($"{Fmt.Bytes(total)} over {_days} days")">
+        <Actions>
+            <div class="flex items-center gap-3">
+                <Legend Items="Legend.DownUp" />
+                <Segmented TValue="int" Value="_days" ValueChanged="SetDays" Options="@([(7, "7d"), (30, "30d"), (90, "90d")])" />
+            </div>
+        </Actions>
+        <ChildContent>
+            @if (_data is not null)
+            {
+                <AreaChart Rows="@_data.Daily.Select(d => new AreaChart.Row(d.Day, [d.BytesIn, d.BytesOut])).ToList()" Series="InOut" Height="240" Stacked="true" Total="true" XFormat="F.ShortDay" TipFormat="v => Fmt.Bytes(v)" />
+            }
+            else
+            {
+                <Skeleton Class="h-60" />
+            }
+        </ChildContent>
+    </Card>
+    <Card Class="xl:col-span-2" Title="Per-application traffic" Subtitle="@($"Last {_data?.RangeDays ?? 7} days · from kernel ETW network events")" Pad="false">
+        @if (_data?.Processes.Count > 0)
+        {
+            var tot = Math.Max(1, _data.Processes.Sum(y => y.BytesIn + y.BytesOut));
+            <DataTable>
+                <thead><tr><th>Process</th><th class="text-right">Download</th><th class="text-right">Upload</th><th class="w-1/3">Share</th></tr></thead>
+                <tbody>
+                    @foreach (var x in _data.Processes)
+                    {
+                        <tr>
+                            <td class="font-medium">@Fmt.AppName(x.Process) <span class="font-mono text-[11px] font-normal text-muted">@x.Process</span></td>
+                            <td class="text-right tabular">@Fmt.Bytes(x.BytesIn)</td>
+                            <td class="text-right tabular">@Fmt.Bytes(x.BytesOut)</td>
+                            <td><div class="h-1.5 rounded-full bg-panel-2"><div class="h-full rounded-full bg-s1" style="width:@(Cls.Css((x.BytesIn + x.BytesOut) * 100.0 / tot))%"></div></div></td>
+                        </tr>
+                    }
+                </tbody>
+            </DataTable>
+        }
+        else
+        {
+            <Empty Icon="Network" Title="No per-process data">Requires the agent to run as a service (kernel ETW).</Empty>
+        }
+    </Card>
+    <Card Title="By adapter" Subtitle="@($"Last {_data?.RangeDays ?? 7} days")">
+        @if (_data?.Adapters.Count > 0)
+        {
+            <RankBars Rows="@_data.Adapters.Select(a => new RankBars.Bar(a.Adapter, a.Adapter, a.BytesIn + a.BytesOut, null, AdapterLabel(a)))" Format="v => Fmt.Bytes(v)" />
+        }
+        else
+        {
+            <Empty Title="No adapter data" />
+        }
+    </Card>
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [Parameter] public LivePresence? P { get; set; }
+    [Parameter] public List<HistPoint> NetHist { get; set; } = [];
+    [Parameter] public StreamState? Stream { get; set; }
+
+    private static readonly ChartSeries[] InOut = [new("in", "Download", Series.Down), new("out", "Upload", Series.Up)];
+
+    private BandwidthData? _data;
+    private int _days = 30;
+    private Guid _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded != Id) { _loaded = Id; await Load(); }
+    }
+
+    private async Task SetDays(int d) { _days = d; await Load(); }
+
+    private async Task Load()
+    {
+        try { _data = await Api.GetAsync<BandwidthData>($"/api/devices/{Id}/bandwidth?days={_days}"); }
+        catch (ApiException e) { Toast.Fail(e, "Could not load internet usage"); }
+    }
+
+    private static RenderFragment AdapterLabel(AdapterBytes a) => @<span class="inline-flex items-center gap-2">@a.Adapter<Badge>@a.Type</Badge></span>;
+}

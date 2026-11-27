@@ -1,0 +1,23 @@
+<div class="rounded-md border border-line bg-panel-2/40 px-2.5 py-2">
+    <div class="flex items-center gap-1.5 text-xs text-muted"><Icon Name="@Icon" Class="@IconClass" />@Label</div>
+    <div class="truncate text-base font-semibold tabular">@Value</div>
+    @if (Spark is not null)
+    {
+        <Sparkline Values="Spark" Max="SparkMax" Color="@Color" Height="22" />
+    }
+    else
+    {
+        <div class="text-[11px] text-muted">@Sub</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter] public string IconClass { get; set; } = "size-3.5";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string? Sub { get; set; }
+    [Parameter] public IReadOnlyList<double>? Spark { get; set; }
+    [Parameter] public double? SparkMax { get; set; }
+    [Parameter] public string Color { get; set; } = "var(--series-1)";
+}

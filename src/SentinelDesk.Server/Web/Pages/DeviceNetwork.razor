@@ -1,0 +1,55 @@
+<div class="grid gap-3 lg:grid-cols-3">
+    <Card Title="Connection">
+        <Kv>
+            <KvRow K="Status">
+                @if (P is not null)
+                {
+                    <Badge Tone="good">Online</Badge>
+                }
+                else
+                {
+                    <Badge>Offline · @F.Ago(D.LastSeenAt)</Badge>
+                }
+            </KvRow>
+            <KvRow K="Connection type" V="@P?.ConnectionType" />
+            <KvRow K="Local IP"><span class="font-mono text-xs">@(P?.Ip ?? D.LastIp ?? "—")</span></KvRow>
+            <KvRow K="Public IP"><span class="font-mono text-xs">@(D.PublicIp ?? "—")</span></KvRow>
+            <KvRow K="Domain" V="@(D.Domain ?? D.Hardware?.Domain)" />
+            <KvRow K="Server link">
+                @if (D.LiveChannel)
+                {
+                    <Badge Tone="good">Live channel</Badge>
+                }
+                else
+                {
+                    <Badge>Heartbeat polling</Badge>
+                }
+            </KvRow>
+        </Kv>
+    </Card>
+    <Card Class="lg:col-span-2" Title="Network adapters" Subtitle="@(D.HardwareCollectedAt is { } at ? $"Collected {F.Ago(at)}" : null)" Pad="false">
+        @if (Nics.Count == 0)
+        {
+            <Empty Icon="Network" Title="Adapter details not collected yet" />
+        }
+        else
+        {
+            <DataTable>
+                <thead><tr><th>Adapter</th><th>Type</th><th>IP</th><th>MAC</th><th>Speed</th></tr></thead>
+                <tbody>
+                    @foreach (var n in Nics)
+                    {
+                        <tr><td>@n.Name</td><td><Badge>@n.Type</Badge></td><td class="font-mono text-xs">@(n.Ip ?? "—")</td><td class="font-mono text-xs">@(n.Mac ?? "—")</td><td class="tabular">@(n.SpeedMbps > 0 ? $"{n.SpeedMbps} Mbps" : "—")</td></tr>
+                    }
+                </tbody>
+            </DataTable>
+        }
+    </Card>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DeviceDetail D { get; set; } = default!;
+    [Parameter] public LivePresence? P { get; set; }
+
+    private List<NicInfo> Nics => D.Hardware?.Nics ?? [];
+}

@@ -1,0 +1,55 @@
+@* Offline unlock code: pauses all blocking on one computer, typed in the tray. *@
+<Modal Open="Open" OnClose="Close" Title="Unlock code (works offline)">
+    <ChildContent>
+        @if (_res is null)
+        {
+            <div class="space-y-3">
+                <p class="text-sm text-fg-2">Give this code to the user of <b>@Hostname</b>, for example by phone. They type it in the tray
+                    (<i>Enter unlock code…</i>) and all blocking on that computer pauses. It works even when the computer is offline, and only once.</p>
+                <Field Label="Pause blocking for">
+                    <Segmented TValue="int" @bind-Value="_hours" Options="@([(1, "1 hour"), (4, "4 hours"), (8, "8 hours")])" />
+                </Field>
+            </div>
+        }
+        else
+        {
+            <div class="space-y-3">
+                <div class="rounded-lg bg-panel-2 py-3 text-center font-mono text-2xl font-semibold tracking-[0.2em]">@_res.Code</div>
+                <p class="text-sm text-fg-2">Pauses blocking on @Hostname for @_res.Hours hour@(_res.Hours == 1 ? "" : "s"). The code must be entered before
+                    @F.Time(_res.ValidUntil). This is recorded in the audit log.</p>
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        @if (_res is not null)
+        {
+            <Btn Variant="primary" OnClick="Close">Done</Btn>
+        }
+        else
+        {
+            <Btn Variant="ghost" OnClick="Close">Cancel</Btn>
+            <Btn Variant="primary" Loading="_busy" OnClick="Create">Create code</Btn>
+        }
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public Guid DeviceId { get; set; }
+    [Parameter] public string Hostname { get; set; } = "";
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private int _hours = 1;
+    private UnlockCode? _res;
+    private bool _busy;
+
+    private Task Close() { _res = null; return OnClose.InvokeAsync(); }
+
+    private async Task Create()
+    {
+        _busy = true;
+        try { _res = await Api.PostAsync<UnlockCode>($"/api/devices/{DeviceId}/unlock-code", new { hours = _hours }); }
+        catch (ApiException e) { Toast.Fail(e, "Could not create the code"); }
+        finally { _busy = false; }
+    }
+}
